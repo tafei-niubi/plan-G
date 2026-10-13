@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld('petAPI', {
   showSubtitle: (text) => ipcRenderer.send('subtitle:show', text),
   getSystemStatus: () => ipcRenderer.invoke('system:status'),
   onSystemStatusChanged: (cb) => ipcRenderer.on('system:status-changed', (e, s) => cb(s)),
+  playByText: (text) => ipcRenderer.invoke('tts:play-by-text', text),
+  onTTSEnabledChanged: (cb) => ipcRenderer.on('tts:enabled-changed', (e, on) => cb(on)),
+  getTTSEnabled: () => ipcRenderer.invoke('tts:get-enabled'),
 });
 
 contextBridge.exposeInMainWorld('translateAPI', {

@@ -35,6 +35,8 @@ body.ghost #stage { opacity: 0.45; }
   z-index: 9;
 }
 body[data-role="captain"] #pet-image {
+  height: 76%;
+  bottom: 8%;
   filter: drop-shadow(0 0 20px rgba(0, 229, 255, 0.6)) contrast(1.1) brightness(1.1);
 }
 body[data-role="maid"] #pet-image {
@@ -42,6 +44,8 @@ body[data-role="maid"] #pet-image {
   filter: drop-shadow(0 0 20px rgba(255, 179, 71, 0.7)) contrast(1.1) brightness(1.1);
 }
 body[data-role="guard"] #pet-image {
+  height: 76%;
+  bottom: 8%;
   filter: drop-shadow(0 0 20px rgba(255, 45, 85, 0.7)) contrast(1.1) brightness(1.1);
 }
 

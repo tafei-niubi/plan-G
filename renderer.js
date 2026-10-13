@@ -4,6 +4,9 @@ const $ = (s) => document.querySelector(s);
 const stage = $('#stage');
 const petWrap = $('#pet-wrapper');
 
+let ttsEnabled = true;
+let currentAudio = null;
+
 
 const STATUS_DIALOGUES = {
   captain: {
@@ -117,6 +120,112 @@ function bubble(text, ms = 2600) {
   if (!text) return;
   if (window.petAPI && window.petAPI.showSubtitle) {
     window.petAPI.showSubtitle(String(text));
+  }
+  speakAndPlay(String(text));
+}
+
+// ===== TTS + 电音效果 =====
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function makeDistortionCurve(amount) {
+  const n = 256;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2) / n - 1;
+    curve[i] = ((Math.PI + amount) * x) / (Math.PI + amount * Math.abs(x));
+  }
+  return curve;
+}
+
+function makeReverbImpulse(ctx, durationSec) {
+  const rate = ctx.sampleRate;
+  const len = rate * durationSec;
+  const buf = ctx.createBuffer(2, len, rate);
+  for (let c = 0; c < 2; c++) {
+    const ch = buf.getChannelData(c);
+    for (let i = 0; i < len; i++) {
+      ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.5);
+    }
+  }
+  return buf;
+}
+
+const VOICE_FX = {
+  captain: { lowCut: 300, highCut: 4000, drive: 0.2, reverb: 0.15, gain: 1.0 },
+  maid:    { lowCut: 200, highCut: 5000, drive: 0.08, reverb: 0,    gain: 1.0 },
+  guard:   { lowCut: 400, highCut: 3000, drive: 0.35, reverb: 0.25, gain: 1.05 },
+};
+
+let currentAudioNodes = null;
+
+async function speakAndPlay(text) {
+  if (!ttsEnabled) return;
+  const t = String(text || '').trim();
+  if (!t || t.length > 200) return;
+  try {
+    // 停掉上一段
+    if (currentAudioNodes) {
+      try { currentAudioNodes.stop(); } catch (e) {}
+      currentAudioNodes = null;
+    }
+    const res = await window.petAPI.playByText(t);
+    if (!res || !res.ok) return; // 无匹配 → 静默
+
+    const ctx = getAudioCtx();
+    if (ctx.state === 'suspended') await ctx.resume();
+
+    const base64 = res.dataUrl.split(',')[1];
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const audioBuf = await ctx.decodeAudioData(bytes.buffer);
+
+    const role = document.body.dataset.role || 'captain';
+    const fx = VOICE_FX[role] || VOICE_FX.captain;
+
+    const src = ctx.createBufferSource();
+    src.buffer = audioBuf;
+
+    const highpass = ctx.createBiquadFilter();
+    highpass.type = 'highpass';
+    highpass.frequency.value = fx.lowCut;
+
+    const lowpass = ctx.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.value = fx.highCut;
+
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = makeDistortionCurve(fx.drive * 100);
+    shaper.oversample = '2x';
+
+    const gainNode = ctx.createGain();
+    gainNode.gain.value = fx.gain;
+
+    src.connect(highpass);
+    highpass.connect(lowpass);
+    lowpass.connect(shaper);
+    shaper.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    if (fx.reverb > 0) {
+      const convolver = ctx.createConvolver();
+      convolver.buffer = makeReverbImpulse(ctx, fx.reverb);
+      const wet = ctx.createGain();
+      wet.gain.value = 0.25;
+      gainNode.connect(convolver);
+      convolver.connect(wet);
+      wet.connect(ctx.destination);
+    }
+
+    src.start(0);
+    currentAudioNodes = src;
+    src.onended = () => { if (currentAudioNodes === src) currentAudioNodes = null; };
+  } catch (e) {
+    console.error('[TTS]', e);
   }
 }
 
@@ -607,6 +716,9 @@ function sendTrayIcon() {
 // ---- 启动 ----
 async function init() {
   const cfg = await api.getConfig();
+  if (window.petAPI && window.petAPI.getTTSEnabled) {
+    window.petAPI.getTTSEnabled().then(on => { ttsEnabled = !!on; }).catch(() => {});
+  }
   if (cfg.hunger != null) S.hunger = cfg.hunger;
   if (cfg.fun != null) S.fun = cfg.fun;
   if (cfg.energy != null) S.energy = cfg.energy;
@@ -645,4 +757,8 @@ if (window.petAPI && window.petAPI.onSystemStatusChanged) {
       bubble(pickStatusLine(status), 5000);
     }
   });
+}
+
+if (window.petAPI && window.petAPI.onTTSEnabledChanged) {
+  window.petAPI.onTTSEnabledChanged((on) => { ttsEnabled = !!on; });
 }

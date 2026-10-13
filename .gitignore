@@ -12,3 +12,9 @@ dist/
 npm-debug.log*
 .DS_Store
 Thumbs.db
+
+# TTS 预录音频生成(本地脚本与密钥,不随仓库分发)
+xfyun-credentials.json
+test-tts*.mp3
+test-tts*.js
+generate-voices.py

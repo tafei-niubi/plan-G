@@ -11,6 +11,12 @@ const yaml = require('js-yaml');
 const Anthropic = require('@anthropic-ai/sdk');
 const AnthropicClient = Anthropic.default || Anthropic;
 
+const ttsCacheDir = () => {
+  const dir = path.join(app.getPath('userData'), 'tts-cache');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+};
+
 // 窗口基准尺寸(与动画素材 640×500 一致,16:9)
 const W = 640;
 const H = 700;
@@ -75,6 +81,13 @@ let exerciseWin = null;
 let notebookWin = null;
 let splashWin = null;
 let lastSystemStatus = null;
+let ttsManifest = null;
+
+const TTS_VOICES = {
+  captain: 'zh-CN-YunxiNeural',
+  maid:    'zh-CN-XiaoxiaoNeural',
+  guard:   'zh-CN-XiaomoNeural',
+};
 
 const configPath = () => path.join(app.getPath('userData'), 'config.json');
 const memoryPath = () => path.join(app.getPath('userData'), 'chat-memory.json');
@@ -177,6 +190,52 @@ async function getSystemStatus() {
     return {};
   } finally {
     statusBusy = false;
+  }
+}
+
+async function generateTTSFile(text, voice, filePath) {
+  const { EdgeTTS } = require('@duyquangnvx/edge-tts-universal');
+  const VOICE_OPTS = {
+    'zh-CN-YunxiNeural':    { rate: '+5%',  pitch: '-5Hz'  },
+    'zh-CN-XiaoxiaoNeural': { rate: '+10%', pitch: '+0Hz'  },
+    'zh-CN-XiaomoNeural':   { rate: '+20%', pitch: '-10Hz' },
+  };
+  const opts = VOICE_OPTS[voice] || { rate: '+10%', pitch: '+0Hz' };
+  try {
+    const tts = new EdgeTTS(text, voice, opts);
+    const { audio } = await tts.synthesize();
+    const buf = Buffer.from(await audio.arrayBuffer());
+    await fs.promises.writeFile(filePath, buf);
+  } catch (err) {
+    console.error('[TTS] 生成失败:', err && err.message ? err.message : err);
+    throw err;
+  }
+}
+
+async function getOrCreateTTSFile(text, voice) {
+  const crypto = require('crypto');
+  const hash = crypto.createHash('md5').update(voice + '|' + text + '|v1').digest('hex').slice(0, 16);
+  const filePath = path.join(ttsCacheDir(), hash + '.mp3');
+  if (fs.existsSync(filePath)) return filePath;
+  await generateTTSFile(text, voice, filePath);
+  return filePath;
+}
+
+function toggleTTS() {
+  const cur = cfg().ttsEnabled !== false;
+  saveConfig(Object.assign({}, cfg(), { ttsEnabled: !cur }));
+  if (win && !win.isDestroyed()) win.webContents.send('tts:enabled-changed', !cur);
+  if (tray) tray.setContextMenu(buildMenu());
+}
+
+function loadTTSManifest() {
+  try {
+    const p = path.join(__dirname, 'assets', 'voices', 'manifest.json');
+    if (!fs.existsSync(p)) return null;
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
+  } catch (e) {
+    console.error('[TTS] manifest 加载失败:', e.message);
+    return null;
   }
 }
 
@@ -769,6 +828,7 @@ function buildMenu() {
       { label: '控制台 🖥', click: () => openGuard() },
     ] },
     { type: 'separator' },
+    { label: '语音播报', type: 'checkbox', checked: cfg().ttsEnabled !== false, click: () => toggleTTS() },
     { label: '穿透点击(让鼠标点到桌面) Ctrl+Shift+G', type: 'checkbox', checked: clickThrough, click: () => toggleClickThrough() },
     { label: '大小', submenu: sizeOptions },
     { type: 'separator' },
@@ -856,6 +916,31 @@ ipcMain.handle('get-balance', async () => {
 });
 
 ipcMain.handle('system:status', async () => await getSystemStatus());
+
+ipcMain.handle('tts:play-by-text', async (e, text) => {
+  const t = String(text || '').trim();
+  if (!t) return { ok: false, reason: 'empty' };
+  if (!ttsManifest) ttsManifest = loadTTSManifest();
+  if (!ttsManifest) return { ok: false, reason: 'no-manifest' };
+
+  const role = currentRoleKey();
+  const group = ttsManifest[role] || {};
+  const filename = group[t];
+  if (!filename) return { ok: false, reason: 'no-match' };
+
+  const filePath = path.join(__dirname, 'assets', 'voices', role, filename);
+  if (!fs.existsSync(filePath)) return { ok: false, reason: 'file-missing' };
+
+  try {
+    const buf = fs.readFileSync(filePath);
+    const dataUrl = 'data:audio/mp3;base64,' + buf.toString('base64');
+    return { ok: true, dataUrl };
+  } catch (err) {
+    return { ok: false, reason: err.message };
+  }
+});
+
+ipcMain.handle('tts:get-enabled', () => cfg().ttsEnabled !== false);
 
 ipcMain.handle('whisper', async () => {
   try {
