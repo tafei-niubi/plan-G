@@ -1,0 +1,14 @@
+# 依赖(由 npm install 生成)
+node_modules/
+
+# 打包产物(exe 等,体积大,建议放 GitHub Release 而非仓库)
+dist/
+
+# 本地 npm 配置(国内镜像,属于本机环境,不随仓库分发)
+.npmrc
+
+# 日志与临时文件
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db

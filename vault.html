@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>守卫 · 密码库</title>
+  <link rel="stylesheet" href="vault.css" />
+</head>
+<body>
+  <div id="password-modal" class="modal">
+    <div class="modal-box">
+      <h3 id="modal-title">设置主密码</h3>
+      <p id="modal-sub">密码库已加密，请输入主密码解锁</p>
+      <input type="password" id="password-input" placeholder="输入主密码（至少8位）" />
+      <button id="password-submit">确认</button>
+      <button id="password-cancel" style="margin-top:8px; background:transparent; border:1px solid rgba(255,45,85,0.4); color:#a8888d; width:100%; padding:10px; border-radius:8px; cursor:pointer; font-size:13px;">取消并关闭</button>
+      <p id="password-error"></p>
+    </div>
+  </div>
+
+  <header id="titlebar">
+    <div class="title">⛨ 守卫 · 密码库</div>
+    <div class="controls">
+      <button id="lock-btn" class="ctrl" title="锁定">🔒</button>
+      <button id="help-btn" title="如何使用浏览器扩展">?</button>
+      <button id="close-btn" class="ctrl" title="关闭">✕</button>
+    </div>
+  </header>
+
+  <input id="search" type="text" placeholder="搜索条目..." />
+
+  <div id="list"></div>
+
+  <button id="add-btn">+ 添加新条目</button>
+
+  <div id="entry-modal" class="modal" style="display:none;">
+    <div class="modal-box">
+      <h3 id="entry-title">添加新条目</h3>
+      <input type="text" id="entry-site" placeholder="网站（如 github.com）" />
+      <input type="text" id="entry-user" placeholder="用户名" />
+      <input type="text" id="entry-nick" placeholder="昵称（可选）" />
+      <input type="password" id="entry-pass" placeholder="密码" />
+      <input type="text" id="entry-note" placeholder="备注（可选）" />
+      <div class="entry-actions">
+        <button id="entry-cancel" class="btn-secondary">取消</button>
+        <button id="entry-save" class="btn-primary">保存</button>
+      </div>
+      <p id="entry-error"></p>
+    </div>
+  </div>
+
+  <div id="help-modal" class="modal" style="display:none;">
+    <div class="modal-box">
+      <h3>如何使用浏览器扩展</h3>
+      <ol style="text-align:left; line-height:1.8; color:#f5e8ea; font-size:13px; padding-left:18px; margin:10px 0;">
+        <li>打开 Microsoft Edge 或 Chrome 浏览器</li>
+        <li>地址栏输入 <b>edge://extensions</b>（Chrome 用 chrome://extensions）</li>
+        <li>打开右上角「开发人员模式」开关</li>
+        <li>点「加载解压缩的扩展」</li>
+        <li>选择下面的文件夹：</li>
+      </ol>
+      <input type="text" id="ext-path" readonly style="width:100%; margin-bottom:10px;" />
+      <div class="entry-actions" style="display:flex; gap:8px; justify-content:flex-end;">
+        <button id="copy-path" class="btn-secondary">复制路径</button>
+        <button id="help-close" class="btn-primary">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="vault.js"></script>
+</body>
+</html>

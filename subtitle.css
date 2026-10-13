@@ -1,0 +1,190 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%; height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  -webkit-app-region: drag;
+  cursor: move;
+}
+
+#subtitle-bar {
+  width: 100%; height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 18px;
+  background: linear-gradient(135deg, rgba(10, 16, 24, 0.92), rgba(15, 22, 32, 0.96));
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 8px;
+  box-shadow:
+    0 0 16px rgba(0, 229, 255, 0.25),
+    0 0 32px rgba(0, 229, 255, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+#subtitle-bar.show { opacity: 1; }
+
+/* 顶部/底部细微高光边 */
+#subtitle-bar::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 20%; right: 20%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, currentColor, transparent);
+  opacity: 0.6;
+}
+#subtitle-bar::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 30%; right: 30%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, currentColor, transparent);
+  opacity: 0.25;
+}
+
+/* 左右两端的小方块角标（科技感） */
+.corner {
+  position: absolute;
+  width: 8px; height: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  opacity: 0.55;
+}
+.corner-l { left: 10px; }
+.corner-r { right: 10px; }
+.corner::before,
+.corner::after {
+  content: '';
+  position: absolute;
+  background: currentColor;
+}
+.corner::before {
+  width: 6px; height: 1px;
+  top: 0; left: 0;
+}
+.corner::after {
+  width: 1px; height: 6px;
+  top: 0; left: 0;
+}
+.corner-l::before { top: 0; left: 0; }
+.corner-l::after  { top: 0; left: 0; }
+.corner-r::before { bottom: 0; right: 0; top: auto; left: auto; }
+.corner-r::after  { bottom: 0; right: 0; top: auto; left: auto; }
+
+#subtitle-text {
+  font-size: 15px;
+  color: #e8eaef;
+  line-height: 1.3;
+  text-align: center;
+  letter-spacing: 0.8px;
+  word-wrap: break-word;
+  max-width: 100%;
+  max-height: 48px;
+  overflow: hidden;
+}
+/* ===== 角色专属字体 ===== */
+
+/* ========== 舰长：HUD 终端风 ========== */
+body[data-role="captain"] #subtitle-bar {
+  color: #00e5ff;
+  border-color: rgba(0, 229, 255, 0.5);
+  background: linear-gradient(135deg, rgba(8, 18, 26, 0.94), rgba(12, 24, 34, 0.96));
+  box-shadow:
+    0 0 18px rgba(0, 229, 255, 0.3),
+    0 0 36px rgba(0, 229, 255, 0.12),
+    inset 0 1px 0 rgba(0, 229, 255, 0.08);
+}
+body[data-role="captain"] #subtitle-text {
+  font-family: 'DengXian Light', 'Microsoft YaHei UI Light', 'Segoe UI Light', 'Microsoft YaHei', sans-serif;
+  font-weight: 200;
+  letter-spacing: 4px;
+  color: #d0f8ff;
+  text-shadow:
+    0 0 4px rgba(0, 229, 255, 0.9),
+    0 0 10px rgba(0, 229, 255, 0.5),
+    0 0 20px rgba(0, 229, 255, 0.25);
+}
+
+/* ========== 女仆：和风暖光 ========== */
+body[data-role="maid"] #subtitle-bar {
+  color: #ffb347;
+  border-radius: 24px;
+  border-color: rgba(255, 179, 71, 0.5);
+  background: linear-gradient(135deg, rgba(38, 22, 26, 0.94), rgba(28, 16, 20, 0.96));
+  box-shadow:
+    0 0 20px rgba(255, 179, 71, 0.3),
+    0 0 40px rgba(255, 143, 163, 0.12),
+    inset 0 1px 0 rgba(255, 200, 150, 0.08);
+}
+body[data-role="maid"] #subtitle-text {
+  font-family: 'YouYuan', 'Yuanti SC', 'KaiTi', 'Microsoft YaHei UI', sans-serif;
+  font-weight: 500;
+  letter-spacing: 1px;
+  color: #f8e8d4;
+  text-shadow:
+    0 0 5px rgba(255, 179, 71, 0.7),
+    0 0 12px rgba(255, 143, 163, 0.3);
+}
+body[data-role="maid"] .corner::before,
+body[data-role="maid"] .corner::after {
+  display: none;
+}
+
+/* ========== 守卫：军事警报终端 ========== */
+body[data-role="guard"] #subtitle-bar {
+  color: #ff2d55;
+  border-radius: 2px;
+  border-color: rgba(255, 45, 85, 0.55);
+  background:
+    repeating-linear-gradient(
+      45deg,
+      rgba(255, 45, 85, 0.04),
+      rgba(255, 45, 85, 0.04) 6px,
+      transparent 6px,
+      transparent 12px
+    ),
+    linear-gradient(180deg, rgba(22, 8, 10, 0.94), rgba(12, 4, 6, 0.96));
+  box-shadow:
+    0 0 20px rgba(255, 45, 85, 0.35),
+    0 0 40px rgba(255, 45, 85, 0.15),
+    inset 0 1px 0 rgba(255, 45, 85, 0.1);
+}
+body[data-role="guard"] #subtitle-text {
+  font-family: 'SimHei', 'Microsoft YaHei UI', 'Segoe UI', sans-serif;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: #ffd6da;
+  transform: skewX(-3deg);
+  text-shadow:
+    0 0 4px rgba(255, 45, 85, 1),
+    0 0 12px rgba(255, 45, 85, 0.7),
+    0 0 24px rgba(255, 45, 85, 0.35),
+    1px 1px 0 rgba(0, 0, 0, 0.7);
+}
+/* ========== 逐字出现与消失 ========== */
+.subtitle-char {
+  display: inline;
+  opacity: 0;
+  transform: translateY(-4px);
+  filter: blur(4px);
+  transition: opacity 0.28s ease, transform 0.28s ease, filter 0.28s ease, text-shadow 0.28s ease;
+}
+
+.subtitle-char.visible {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+
+.subtitle-char.dissolve {
+  opacity: 0;
+  transform: translateY(3px);
+  filter: blur(5px);
+}

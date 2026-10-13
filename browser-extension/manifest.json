@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "G计划 · 密码守卫",
+  "version": "1.0.0",
+  "description": "配合 G计划 AI 管家，检测网页密码输入并提醒保存",
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": ["http://127.0.0.1:27888/*"]
+}

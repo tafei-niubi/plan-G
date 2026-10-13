@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>女仆的小建议</title>
+  <link rel="stylesheet" href="exercise.css" />
+</head>
+<body>
+  <div id="ex-win">
+    <div class="ex-header">
+      <span class="ex-icon">❀</span>
+      <span class="ex-title">女仆的小建议</span>
+      <button id="ex-close">✕</button>
+    </div>
+    <div class="ex-body">
+      <div id="ex-panel-menu">
+        <div class="ex-hint">主人，想不想做个小小的舒展呀？</div>
+        <div id="ex-menu-list"></div>
+        <button id="ex-cancel" class="ex-btn-ghost">先不了，谢谢~</button>
+      </div>
+      <div id="ex-panel-detail" style="display:none;">
+        <div id="ex-detail-name" class="ex-detail-name"></div>
+        <div id="ex-detail-duration" class="ex-detail-duration"></div>
+        <div id="ex-detail-benefits" class="ex-detail-benefits"></div>
+        <div class="ex-btn-row">
+          <button id="ex-back" class="ex-btn-ghost">返回</button>
+          <button id="ex-try" class="ex-btn-primary">试一试</button>
+        </div>
+      </div>
+      <div id="ex-panel-steps" style="display:none;">
+        <div id="ex-steps-name" class="ex-detail-name"></div>
+        <div id="ex-steps-content" class="ex-steps-content"></div>
+        <div id="ex-steps-tip" class="ex-steps-tip"></div>
+        <div class="ex-btn-row">
+          <button id="ex-done" class="ex-btn-primary">好的，我这就做</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="exercise.js"></script>
+</body>
+</html>

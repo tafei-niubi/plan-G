@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>G计划 · 翻译</title>
+  <link rel="stylesheet" href="translate.css" />
+</head>
+<body>
+  <div id="wrap">
+    <div id="header">
+      <span id="title">🌐 翻译</span>
+      <button id="close" title="关闭">×</button>
+    </div>
+    <div id="body">
+      <textarea id="src" placeholder="输入或粘贴要翻译的内容…"></textarea>
+      <div id="bar">
+        <select id="target">
+          <option value="zh2en" selected>中文 → English</option>
+          <option value="en2zh">English → 中文</option>
+          <option value="zh2ja">中文 → 日本語</option>
+          <option value="zh2ko">中文 → 한국어</option>
+          <option value="auto2zh">自动检测 → 中文</option>
+        </select>
+        <button id="paste" title="读取剪贴板">📋</button>
+        <button id="go">翻译</button>
+      </div>
+      <div id="out-wrap">
+        <div id="out" class="placeholder">译文会显示在这里</div>
+        <button id="copy" title="复制译文">复制</button>
+      </div>
+    </div>
+  </div>
+  <script src="translate.js"></script>
+</body>
+</html>

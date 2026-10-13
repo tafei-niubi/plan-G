@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>舰长 · 笔记本</title>
+  <link rel="stylesheet" href="notebook.css" />
+</head>
+<body>
+  <div id="nb">
+    <div id="nb-header">
+      <div class="nb-brand">
+        <span class="nb-icon">◈</span>
+        <span class="nb-title">舰长 · 笔记本</span>
+      </div>
+      <button id="nb-trash-btn" title="回收站">🗑</button>
+      <button id="nb-close" title="关闭">✕</button>
+    </div>
+
+    <div id="nb-tabs">
+      <button class="nb-tab active" data-tab="inspiration">灵感</button>
+      <button class="nb-tab" data-tab="excerpt">摘录</button>
+      <button class="nb-tab" data-tab="todo">待办</button>
+      <button id="nb-auto-comment" class="nb-auto-btn" title="自动点评开关">✨ 自动点评: 开</button>
+    </div>
+
+    <div id="nb-input-area">
+      <textarea id="nb-input" placeholder="记录一条灵感...（Ctrl+Enter 快速提交）" rows="2"></textarea>
+      <div class="nb-input-actions">
+        <button id="nb-shot" title="上传截图">📷</button>
+        <button id="nb-add" class="nb-btn-primary">记录</button>
+      </div>
+    </div>
+
+    <div id="nb-list">
+      <div class="nb-panel active" data-panel="inspiration"></div>
+      <div class="nb-panel" data-panel="excerpt"></div>
+      <div class="nb-panel" data-panel="todo"></div>
+      <div class="nb-panel" data-panel="trash"></div>
+    </div>
+  </div>
+
+  <div id="nb-confirm" class="nb-confirm-hidden">
+    <div class="nb-confirm-box">
+      <div class="nb-confirm-title">⚠ 请确认</div>
+      <div class="nb-confirm-msg" id="nb-confirm-msg">确定删除这条吗？</div>
+      <div class="nb-confirm-actions">
+        <button id="nb-confirm-cancel" class="nb-cf-btn-ghost">取消</button>
+        <button id="nb-confirm-ok" class="nb-cf-btn-primary">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="nb-preview" class="nb-preview-hidden"><img id="nb-preview-img" src="" alt="" /></div>
+
+  <div id="nb-paste-hint">✓ 已从剪贴板粘贴图片</div>
+
+  <script src="notebook.js"></script>
+</body>
+</html>

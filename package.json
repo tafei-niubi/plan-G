@@ -1,0 +1,50 @@
+{
+  "name": "godzilla-pet",
+  "version": "1.0.0",
+  "description": "G计划 · 数据方舟 — 指挥官的数字生活中枢",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "shortcut": "node scripts/create-shortcut.js",
+    "dist": "electron-builder --win --publish never",
+    "pack": "electron-builder --dir"
+  },
+  "author": "",
+  "license": "MIT",
+  "build": {
+    "appId": "com.godzilla.pet",
+    "productName": "G计划",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!scripts/**",
+      "!.npmrc",
+      "!dist/**"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "portable",
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "G计划"
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.1",
+    "js-yaml": "^5.4.3",
+    "systeminformation": "^5.33.15"
+  }
+}

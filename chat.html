@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>G计划 · 通讯</title>
+  <link rel="stylesheet" href="chat.css" />
+</head>
+<body>
+  <div id="chat">
+    <div id="header">
+      <div class="brand">
+        <span class="avatar">◈</span>
+        <span id="title">G-计划</span>
+      </div>
+      <div class="actions">
+        <button id="clear" title="重置记忆">↺</button>
+        <button id="close" title="收起">×</button>
+      </div>
+    </div>
+ <div id="messages-wrap">
+    <div id="messages">
+      <div id="empty">
+        <div class="empty-avatar">◈</div>
+        <div class="empty-title">系统就绪</div>
+        <div class="empty-sub">我会在这里。你可以直接说话，不需要用特定的命令。</div>
+      </div>
+    </div>
+  </div>
+    <div id="input-area">
+      <div id="input-box">
+        <textarea id="input" placeholder="和我说点什么…" rows="1"></textarea>
+        <button id="send" title="发送">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2.5 3.5 22 12 2.5 20.5 5 12 2.5 3.5Z" fill="currentColor" stroke="currentColor" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <div id="hint">Enter 发送 · Shift+Enter 换行</div>
+    </div>
+  </div>
+  <script src="chat.js"></script>
+</body>
+</html>

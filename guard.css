@@ -1,0 +1,202 @@
+* { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: #0d0808;
+  color: #f5e8ea;
+  font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  overflow: hidden;
+}
+
+body { display: flex; flex-direction: column; }
+
+/* ---- 顶栏（可拖动窗口） ---- */
+#titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  padding: 0 12px;
+  border-bottom: 1px solid rgba(255, 45, 85, 0.3);
+  -webkit-app-region: drag;
+}
+#titlebar .title {
+  color: #ff2d55;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-shadow: 0 0 10px rgba(255, 45, 85, 0.6);
+}
+.ctrl {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(255, 45, 85, 0.3);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.4);
+  color: #f5e8ea;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.ctrl:hover {
+  border-color: #ff2d55;
+  box-shadow: 0 0 12px rgba(255, 45, 85, 0.5);
+}
+
+/* ---- 标签栏 ---- */
+#tabs {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid rgba(255, 45, 85, 0.2);
+}
+.tab {
+  flex: 1;
+  padding: 8px 0;
+  border: 1px solid rgba(255, 45, 85, 0.3);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.4);
+  color: #a8888d;
+  font-size: 13px;
+  cursor: pointer;
+}
+.tab.active {
+  background: #ff2d55;
+  color: #0d0808;
+  font-weight: 600;
+  border-color: #ff2d55;
+  box-shadow: 0 0 12px rgba(255, 45, 85, 0.5);
+}
+
+/* ---- 面板 ---- */
+.panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  color: #f5e8ea;
+  font-size: 13px;
+}
+
+.btn {
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 45, 85, 0.4);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.4);
+  color: #ff2d55;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn:hover {
+  border-color: #ff2d55;
+  box-shadow: 0 0 12px rgba(255, 45, 85, 0.5);
+}
+
+/* ---- 连接列表 ---- */
+.conn-list {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 45, 85, 0.2);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.3);
+}
+.placeholder {
+  color: #a8888d;
+  font-size: 13px;
+  text-align: center;
+  padding: 20px 0;
+}
+
+/* ---- 系统健康行 ---- */
+.sys-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 12px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(255, 45, 85, 0.3);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.4);
+}
+.sys-label { color: #f5e8ea; font-size: 14px; }
+.sys-value { color: #ff9d00; font-size: 14px; font-family: Consolas, "Courier New", monospace; }
+
+/* ---- 连接状态圆点 ---- */
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.dot-danger { background: #ff2d55; }
+.dot-private { background: #00e5ff; }
+.dot-normal { background: #f5e8ea; }
+.dot-safe { background: #4d9966; }
+
+/* ---- 图例条 ---- */
+.conn-legend {
+  display: flex;
+  gap: 14px;
+  padding: 8px 12px;
+  font-size: 11px;
+  color: #a8888d;
+  border-bottom: 1px solid rgba(255, 45, 85, 0.1);
+  flex-wrap: wrap;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ---- 白名单按钮 ---- */
+.wl-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  border: 1px solid rgba(255, 45, 85, 0.4);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.4);
+  color: #f5e8ea;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.wl-btn:hover {
+  border-color: #ff2d55;
+  color: #ff2d55;
+}
+
+/* ---- 连接行 ---- */
+.conn-row {
+  transition: background 0.15s;
+}
+.conn-row:hover {
+  background: rgba(255, 45, 85, 0.08);
+}
+
+/* ---- 滚动条（红黑主题） ---- */
+#conn-list::-webkit-scrollbar {
+  width: 8px;
+}
+#conn-list::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+}
+#conn-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 45, 85, 0.4);
+  border-radius: 4px;
+}
+#conn-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 45, 85, 0.6);
+}

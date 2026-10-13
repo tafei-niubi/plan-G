@@ -1,0 +1,46 @@
+name: Release
+
+# 推送一个 v* 标签(如 v1.0.0)即自动打包,并把 exe 上传到 GitHub Release
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 打包
+        run: npm run dist
+
+      - name: 发布到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.exe
+          body: |
+            ## 更名:G计划
+
+            产品正式更名为「G计划」—— 常驻桌面的 AI 助手。
+
+            本次改动:
+            - 窗口标题、托盘提示、安装包名、桌面快捷方式统一改为「G计划」
+            - AI 人设更新为「G计划 的桌面 AI 助手」
+            - 移除「仿 dsh-pet」等旧表述,README 与代码注释同步更新
+            - 沿用上一版的修复:150% DPI 下拖动/走动不再累积变大
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

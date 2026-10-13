@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>G计划 · 划词助手</title>
+  <link rel="stylesheet" href="quickassist.css" />
+</head>
+<body>
+  <div id="card">
+    <div id="header">
+      <span id="mode-label">✨ 智能</span>
+      <div class="actions">
+        <button id="copy" title="复制结果">复制</button>
+        <button id="close" title="关闭">×</button>
+      </div>
+    </div>
+
+    <div id="chips">
+      <button class="chip active" data-mode="auto">智能</button>
+      <button class="chip" data-mode="translate">翻译</button>
+      <button class="chip" data-mode="explain">解释</button>
+      <button class="chip" data-mode="summary">总结</button>
+      <button class="chip" data-mode="polish">润色</button>
+    </div>
+
+    <div id="result" class="placeholder">正在思考…</div>
+
+    <div id="src" class="placeholder"></div>
+  </div>
+  <script src="quickassist.js"></script>
+</body>
+</html>

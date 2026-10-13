@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>守卫 · 控制台</title>
+  <link rel="stylesheet" href="guard.css" />
+</head>
+<body>
+  <header id="titlebar">
+    <div class="title">⛨ 守卫 · 控制台</div>
+    <button id="close-btn" class="ctrl" title="关闭">✕</button>
+  </header>
+
+  <nav id="tabs">
+    <button id="tab-net" class="tab active">网络连接</button>
+    <button id="tab-sys" class="tab">系统健康</button>
+  </nav>
+
+  <section id="panel-net" class="panel">
+    <div class="panel-head">
+      <span>活动网络连接</span>
+      <button id="refresh-btn" class="btn">刷新</button>
+    </div>
+    <div class="conn-legend">
+      <span class="legend-item"><span class="dot dot-private"></span>内网/本机</span>
+      <span class="legend-item"><span class="dot dot-normal"></span>外网</span>
+      <span class="legend-item"><span class="dot dot-danger"></span>可疑端口</span>
+      <span class="legend-item"><span class="dot dot-safe"></span>已加白名单</span>
+    </div>
+    <div id="conn-list" class="conn-list">
+      <div class="placeholder">点击刷新</div>
+    </div>
+  </section>
+
+  <section id="panel-sys" class="panel" style="display:none;">
+    <div class="sys-row">
+      <span class="sys-label">CPU 使用率</span>
+      <span class="sys-value" id="sys-cpu">加载中...</span>
+    </div>
+    <div class="sys-row">
+      <span class="sys-label">内存</span>
+      <span class="sys-value" id="sys-mem">加载中...</span>
+    </div>
+    <div class="sys-row">
+      <span class="sys-label">磁盘</span>
+      <span class="sys-value" id="sys-disk">加载中...</span>
+    </div>
+  </section>
+
+  <script src="guard.js"></script>
+</body>
+</html>
