@@ -20,6 +20,17 @@ html, body { width: 100%; height: 100%; background: transparent; overflow: hidde
 body.ghost #stage { opacity: 0.45; }
 
 /* ===== 立绘 ===== */
+/* ===== 角色专属动画（CSS 变量组合） ===== */
+:root {
+  --role-anim: none;
+  --speak-anim: none;
+}
+body[data-role="captain"] { --role-anim: captainGlow 3.2s ease-in-out infinite; }
+body[data-role="maid"]    { --role-anim: maidSway 5.5s ease-in-out infinite; }
+body[data-role="guard"]   { --role-anim: none; }
+/* 守卫警戒：低电量 / 断网时 body 加 .alert 才抖动 */
+body[data-role="guard"].alert { --role-anim: guardShake 0.45s ease-in-out infinite; }
+
 #pet-image {
   position: absolute;
   left: 50%;
@@ -30,10 +41,15 @@ body.ghost #stage { opacity: 0.45; }
   object-fit: contain;
   object-position: center bottom;
   filter: drop-shadow(0 0 20px rgba(0, 229, 255, 0.6)) contrast(1.1) brightness(1.1);
-  animation: petFloat 4s ease-in-out infinite;
+  animation:
+    petFloat 4s ease-in-out infinite,
+    var(--role-anim, none),
+    var(--speak-anim, none);
   pointer-events: none;
   z-index: 9;
 }
+#pet-image.speaking { --speak-anim: petSpeak 0.55s ease-in-out infinite; }
+
 body[data-role="captain"] #pet-image {
   height: 76%;
   bottom: 8%;
@@ -49,9 +65,41 @@ body[data-role="guard"] #pet-image {
   filter: drop-shadow(0 0 20px rgba(255, 45, 85, 0.7)) contrast(1.1) brightness(1.1);
 }
 
+/* 呼吸浮动（保留原有） */
 @keyframes petFloat {
   0%, 100% { translate: -50% 0; }
   50%      { translate: -50% -8px; }
+}
+
+/* 说话时：立绘轻微缩放（scale 独立于 translate） */
+@keyframes petSpeak {
+  0%, 100% { scale: 1; }
+  50%      { scale: 1.028; }
+}
+
+/* ◈ 舰长：能量/眼线微弱闪烁（filter 脉冲） */
+@keyframes captainGlow {
+  0%, 100% {
+    filter: drop-shadow(0 0 18px rgba(0, 229, 255, 0.55)) contrast(1.08) brightness(1.08);
+  }
+  50% {
+    filter: drop-shadow(0 0 30px rgba(0, 229, 255, 0.95)) contrast(1.15) brightness(1.18);
+  }
+}
+
+/* ❀ 女仆：整体柔和晃动（rotate 属性） */
+@keyframes maidSway {
+  0%, 100% { rotate: -1.6deg; }
+  50%      { rotate: 1.6deg; }
+}
+
+/* ⛨ 守卫：警戒抖动 */
+@keyframes guardShake {
+  0%, 100% { rotate: -0.6deg; }
+  20%      { rotate: 0.7deg; }
+  40%      { rotate: -0.5deg; }
+  60%      { rotate: 0.6deg; }
+  80%      { rotate: -0.4deg; }
 }
 
 #pet-image.role-switching {

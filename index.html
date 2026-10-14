@@ -65,6 +65,17 @@
     @keyframes hudPulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
     .hud-core { animation: hudCore 2.4s ease-in-out infinite; }
     @keyframes hudCore { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+    /* 能量脉冲：从中心向外扩散 */
+.hud-energy-pulse {
+  transform-origin: 200px 200px;
+  transform-box: view-box;
+  animation: energyPulse 3s ease-out infinite;
+}
+@keyframes energyPulse {
+  0%   { transform: scale(0.4); opacity: 0.85; stroke-width: 2.2; }
+  70%  { opacity: 0.25; }
+  100% { transform: scale(3.2); opacity: 0;   stroke-width: 0.4; }
+}
   </style>
 </head>
 <body data-role="captain">
@@ -121,6 +132,9 @@
           </g>
 
           <!-- 中心核心点 -->
+           <!-- 能量脉冲环（向外扩散） -->
+        <circle class="hud-energy-pulse" cx="200" cy="200" r="60"
+        fill="none" stroke="currentColor" stroke-width="2"/>
           <circle cx="200" cy="200" r="16" fill="none" stroke="currentColor" stroke-width="1" stroke-opacity="0.6"/>
           <circle class="hud-core" cx="200" cy="200" r="6" fill="currentColor"/>
         </svg>

@@ -121,6 +121,17 @@ function bubble(text, ms = 2600) {
   if (window.petAPI && window.petAPI.showSubtitle) {
     window.petAPI.showSubtitle(String(text));
   }
+  // 说话动效：立绘轻微缩放，时长跟着文本长度走
+  const petImg = document.getElementById('pet-image');
+  if (petImg) {
+    petImg.classList.add('speaking');
+    const len = String(text).length;
+    const speakMs = Math.max(1800, Math.min(7500, len * 200 + 1200));
+    clearTimeout(petImg.__speakTimer);
+    petImg.__speakTimer = setTimeout(() => {
+      petImg.classList.remove('speaking');
+    }, speakMs);
+  }
   speakAndPlay(String(text));
 }
 
@@ -724,6 +735,13 @@ async function init() {
   if (cfg.energy != null) S.energy = cfg.energy;
   S.wa = await api.getWorkArea();
   await refreshSize();
+    // 初始化警戒状态（开局就读一次系统状态）
+  if (window.petAPI && window.petAPI.getSystemStatus) {
+    try {
+      const s = await window.petAPI.getSystemStatus();
+      applySystemAlert(s);
+    } catch (e) {}
+  }
   sendTrayIcon();
   setInterval(decay, 30000);
   setInterval(save, 60000);
@@ -750,15 +768,21 @@ if (window.petAPI.onNotebookToast) {
   });
 }
 
+  // 初始化警戒状态（开局就读一次系统状态）
+  function applySystemAlert(status) {
+  const alert = !!(status && (status.battery === 'low' || status.net === 'off'));
+  document.body.classList.toggle('alert', alert);
+}
+
 if (window.petAPI && window.petAPI.onSystemStatusChanged) {
   window.petAPI.onSystemStatusChanged((status) => {
+    applySystemAlert(status);
     // 只在有明显异常时才主动说，正常状态不打扰
     if (status.battery === 'low' || status.net === 'off') {
       bubble(pickStatusLine(status), 5000);
     }
   });
 }
-
 if (window.petAPI && window.petAPI.onTTSEnabledChanged) {
   window.petAPI.onTTSEnabledChanged((on) => { ttsEnabled = !!on; });
 }

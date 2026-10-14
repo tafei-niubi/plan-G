@@ -9,8 +9,64 @@ const os = require('os');
 const si = require('systeminformation');
 const yaml = require('js-yaml');
 const Anthropic = require('@anthropic-ai/sdk');
+const dns = require('dns').promises;
 const AnthropicClient = Anthropic.default || Anthropic;
+// ===== 单实例锁：防止多个进程同时抢角色/配置 =====
+// ===== 单实例锁：防止多个进程同时抢角色/配置 =====
+const gotTheLock = app.requestSingleInstanceLock();
 
+if (!gotTheLock) {
+  // 已经有一个实例在跑 → 自己立刻退出
+ app.exit(0)
+} else {
+  // 第二个实例启动时，把已存在的那个窗口拉出来
+  app.on('second-instance', () => {
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    }
+  });
+  app.whenReady().then(async () => {
+  await openSplash();
+  createWindow();
+  openSubtitleWindow();
+  startClipboardWatcher();
+  startExtServer();
+  startSuspiciousWatcher();
+  let statusChecking = false;
+  setInterval(async () => {
+    if (statusChecking) return;
+    if (!win || win.isDestroyed()) return;
+    statusChecking = true;
+    try {
+      const status = await getSystemStatus();
+      const statusKey = JSON.stringify(status);
+      if (statusKey !== lastSystemStatus) {
+        lastSystemStatus = statusKey;
+        win.webContents.send('system:status-changed', status);
+      }
+    } catch (e) {} finally {
+      statusChecking = false;
+    }
+  }, 5000);
+  globalShortcut.register('Control+Shift+G', toggleClickThrough);
+  globalShortcut.register('Control+Shift+F', () => {
+    if (win && win.isVisible()) win.hide(); else showWin();
+  });
+  globalShortcut.register('Control+Shift+C', () => { showWin(); openChat(); });
+  globalShortcut.register('Control+Shift+T', () => { openTranslate(); });
+  globalShortcut.register('Shift+Alt+A', () => { quickAssist('auto', true); });
+  globalShortcut.register('Shift+Alt+S', () => { captureSelectionToNotebook(); });
+  globalShortcut.register('Control+Shift+1', () => switchRole('captain'));
+  globalShortcut.register('Control+Shift+2', () => switchRole('maid'));
+  globalShortcut.register('Control+Shift+3', () => switchRole('guard'));
+});
+
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('will-quit', () => globalShortcut.unregisterAll());
+
+}
 const ttsCacheDir = () => {
   const dir = path.join(app.getPath('userData'), 'tts-cache');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -152,9 +208,22 @@ function getClaude() {
   return new AnthropicClient(apiKey ? { apiKey } : {});
 }
 
-let statusCacheForNet = { netCheckedAt: 0, lastNetOk: true };
+let statusCacheForNet = { netCheckedAt: 0, lastNetOk: true, lastLoggedNet: null};
 let statusBusy = false;
 
+// ===== 真实在线检测：DNS 解析 + 超时兜底 =====
+// ===== 真实在线检测：HTTP HEAD 请求（绕过 DNS 缓存） =====
+async function checkOnline() {
+  try {
+    const res = await fetch('http://www.baidu.com/favicon.ico', {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(2000),
+    });
+    return !!res;
+  } catch (e) {
+    return false;
+  }
+}
 async function getSystemStatus() {
   // 如果上一次检测还没完成，直接返回空（避免请求堆积）
   if (statusBusy) return {};
@@ -175,18 +244,29 @@ async function getSystemStatus() {
     if (cpu && cpu.currentLoad > 80) status.cpu = 'high';
     if (mem && mem.active / mem.total > 0.85) status.mem = 'high';
     // 网络：改为 30 秒缓存一次（不在每次 getSystemStatus 时都调 networkInterfaces）
-    const now = Date.now();
-    if (now - statusCacheForNet.netCheckedAt > 30 * 1000) {
-      try {
-        const ifaces = await si.networkInterfaces();
-        const hasActiveNet = Array.isArray(ifaces) && ifaces.some(i => !i.internal && (i.operstate === 'up' || i.operstate === 'unknown'));
-        statusCacheForNet.lastNetOk = hasActiveNet;
-        statusCacheForNet.netCheckedAt = now;
-      } catch (e) {}
-    }
-    if (!statusCacheForNet.lastNetOk) status.net = 'off';
-    return status;
+    // 网络：DNS 探测 + 10 秒缓存
+const now = Date.now();
+if (now - statusCacheForNet.netCheckedAt > 3000) {
+  try {
+    statusCacheForNet.lastNetOk = await checkOnline();
   } catch (e) {
+    statusCacheForNet.lastNetOk = false;
+  }
+  statusCacheForNet.netCheckedAt = now;
+}
+if (!statusCacheForNet.lastNetOk) status.net = 'off';
+
+// 只在网络状态变化时打日志，不刷屏
+const prevNet = statusCacheForNet.lastLoggedNet;
+const curNet = statusCacheForNet.lastNetOk;
+if (prevNet !== curNet) {
+  console.log('[网络]', curNet ? '在线' : '离线');
+  statusCacheForNet.lastLoggedNet = curNet;
+}
+
+return status;
+  } catch (e) {
+    console.error('[状态] 获取系统状态失败:', e.message);
     return {};
   } finally {
     statusBusy = false;
@@ -763,6 +843,7 @@ function startExtServer() {
 }
 
 function switchRole(key) {
+  console.log('[切角色]', key, '\n来源:', new Error().stack);   // ← 加这行
   if (autoSwitchTimer && !roleBeforeAutoSwitch) { clearTimeout(autoSwitchTimer); autoSwitchTimer = null; }
   if (!ROLES[key]) return;
   saveConfig(Object.assign({}, cfg(), { role: key }));
@@ -779,16 +860,21 @@ function switchRole(key) {
 }
 
 function switchRoleTemporary(key, durationMs) {
+  console.log('[临时切]', key, durationMs, '\n来源:', new Error().stack);   // ← 加这行
   const cur = currentRoleKey();
   if (cur === key) return; // 已经是该角色，不做切换
   if (autoSwitchTimer) { clearTimeout(autoSwitchTimer); autoSwitchTimer = null; }
-  if (!roleBeforeAutoSwitch) roleBeforeAutoSwitch = cur;
+  if (!roleBeforeAutoSwitch) {
+  roleBeforeAutoSwitch = cur;
+  console.log('[记录原角色]', cur, '（临时切到', key, '，', durationMs, 'ms 后恢复）');
+}
   switchRole(key);
   autoSwitchTimer = setTimeout(() => {
-    if (roleBeforeAutoSwitch) {
-      switchRole(roleBeforeAutoSwitch);
-      roleBeforeAutoSwitch = null;
-    }
+   if (roleBeforeAutoSwitch) {
+  console.log('[恢复原角色]', roleBeforeAutoSwitch);
+  switchRole(roleBeforeAutoSwitch);
+  roleBeforeAutoSwitch = null;
+}
     autoSwitchTimer = null;
   }, durationMs);
 }
@@ -1330,7 +1416,7 @@ ipcMain.handle('vault:copy', (e, text) => {
   // 30秒后自动清空剪贴板（只清空一次，避免误清用户后续复制的内容）
   setTimeout(() => {
     try { if (clipboard.readText() === String(text)) clipboard.clear(); } catch (e) {}
-  }, 30000);
+  }, 5000);
   return { ok: true };
 });
 
@@ -1420,41 +1506,3 @@ function startSuspiciousWatcher() {
   }, 5 * 60 * 1000);
 }
 
-app.whenReady().then(async () => {
-  await openSplash();
-  createWindow();
-  openSubtitleWindow();
-  startClipboardWatcher();
-  startExtServer();
-  startSuspiciousWatcher();
-  let statusChecking = false;
-  setInterval(async () => {
-    if (statusChecking) return;
-    if (!win || win.isDestroyed()) return;
-    statusChecking = true;
-    try {
-      const status = await getSystemStatus();
-      const statusKey = JSON.stringify(status);
-      if (statusKey !== lastSystemStatus) {
-        lastSystemStatus = statusKey;
-        win.webContents.send('system:status-changed', status);
-      }
-    } catch (e) {} finally {
-      statusChecking = false;
-    }
-  }, 120000);
-  globalShortcut.register('Control+Shift+G', toggleClickThrough);
-  globalShortcut.register('Control+Shift+F', () => {
-    if (win && win.isVisible()) win.hide(); else showWin();
-  });
-  globalShortcut.register('Control+Shift+C', () => { showWin(); openChat(); });
-  globalShortcut.register('Control+Shift+T', () => { openTranslate(); });
-  globalShortcut.register('Shift+Alt+A', () => { quickAssist('auto', true); });
-  globalShortcut.register('Shift+Alt+S', () => { captureSelectionToNotebook(); });
-  globalShortcut.register('Control+Shift+1', () => switchRole('captain'));
-  globalShortcut.register('Control+Shift+2', () => switchRole('maid'));
-  globalShortcut.register('Control+Shift+3', () => switchRole('guard'));
-});
-
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('will-quit', () => globalShortcut.unregisterAll());

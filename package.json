@@ -1,6 +1,6 @@
 {
   "name": "godzilla-pet",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "G计划 · 数据方舟 — 指挥官的数字生活中枢",
   "main": "main.js",
   "scripts": {
@@ -17,12 +17,17 @@
     "directories": {
       "output": "dist"
     },
-    "files": [
-      "**/*",
-      "!scripts/**",
-      "!.npmrc",
-      "!dist/**"
-    ],
+  "files": [
+  "**/*",
+  "!scripts/**",
+  "!.npmrc",
+  "!dist/**",
+  "!xfyun-credentials.json",
+  "!generate-voices.py",
+  "!voices-to-record.md",
+  "!*.md",
+  "!browser-extension/**"
+              ],
     "win": {
       "icon": "build/icon.ico",
       "target": [
@@ -42,6 +47,9 @@
     "electron": "^33.2.0",
     "electron-builder": "^26.15.3"
   },
+  "asarUnpack": [
+  "assets/voices/**"
+],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.132.1",
     "@duyquangnvx/edge-tts-universal": "^1.4.5",
