@@ -34,6 +34,10 @@ contextBridge.exposeInMainWorld('petAPI', {
   onWallBounceChanged: (cb) => ipcRenderer.on('wall-bounce-changed', (e, on) => cb(on)),
   onMaidRemindersChanged: (cb) => ipcRenderer.on('maid-reminders-changed', (e, on) => cb(on)),
   quickAction: (action) => ipcRenderer.send('pet:quick-action', action),
+  onMemoryLevelChanged: (cb) => ipcRenderer.on('memory-level-changed', (e, level) => cb(level)),
+  synthRealtime: (text, role) => ipcRenderer.invoke('tts:synth-realtime', text, role),
+  clearLiveCache: () => ipcRenderer.invoke('tts:clear-live-cache'),
+  onDiarySpeak: (cb) => ipcRenderer.on('diary:speak', (e, d) => cb(d)),
 });
 
 contextBridge.exposeInMainWorld('translateAPI', {
@@ -138,4 +142,21 @@ contextBridge.exposeInMainWorld('roleAPI', {
 contextBridge.exposeInMainWorld('windowAPI', {
   getAlwaysOnTop: (key) => ipcRenderer.invoke('window:get-always-on-top', key),
   setAlwaysOnTop: (key, on) => ipcRenderer.invoke('window:set-always-on-top', key, on),
+});
+
+contextBridge.exposeInMainWorld('pwdConfirmAPI', {
+  onShow: (cb) => ipcRenderer.on('pwd-confirm:show', (e, payload) => cb(payload)),
+  close: () => ipcRenderer.send('pwd-confirm:close'),
+  accept: (payload) => ipcRenderer.send('pwd-confirm:accept', payload),
+});
+
+contextBridge.exposeInMainWorld('stylesAPI', {
+  load: (role) => ipcRenderer.invoke('styles:load', role),
+});
+
+contextBridge.exposeInMainWorld('diaryAPI', {
+  read: (dateStr) => ipcRenderer.invoke('diary:read', dateStr),
+  list: () => ipcRenderer.invoke('diary:list'),
+  close: () => ipcRenderer.send('diary:close'),
+  getWeather: () => ipcRenderer.invoke('diary:get-weather'),
 });

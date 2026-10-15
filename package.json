@@ -17,17 +17,17 @@
     "directories": {
       "output": "dist"
     },
-  "files": [
-  "**/*",
-  "!scripts/**",
-  "!.npmrc",
-  "!dist/**",
-  "!xfyun-credentials.json",
-  "!generate-voices.py",
-  "!voices-to-record.md",
-  "!*.md",
-  "!browser-extension/**"
-              ],
+    "files": [
+      "**/*",
+      "!scripts/**",
+      "!.npmrc",
+      "!dist/**",
+      "!xfyun-credentials.json",
+      "!generate-voices.py",
+      "!voices-to-record.md",
+      "!*.md",
+      "!browser-extension/**"
+    ],
     "win": {
       "icon": "build/icon.ico",
       "target": [
@@ -48,12 +48,13 @@
     "electron-builder": "^26.15.3"
   },
   "asarUnpack": [
-  "assets/voices/**"
-],
+    "assets/voices/**"
+  ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.132.1",
     "@duyquangnvx/edge-tts-universal": "^1.4.5",
     "js-yaml": "^5.4.3",
-    "systeminformation": "^5.33.15"
+    "systeminformation": "^5.33.15",
+    "ws": "^8.22.0"
   }
 }

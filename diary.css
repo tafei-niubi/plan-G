@@ -1,0 +1,353 @@
+:root {
+  --role-accent: #00e5ff;
+  --role-accent-soft: rgba(0, 229, 255, 0.12);
+  --role-accent-glow: rgba(0, 229, 255, 0.5);
+  --role-border: rgba(0, 229, 255, 0.35);
+  --role-bg: #0a1018;
+  --role-bg-panel: #0f1a24;
+  --role-font: 'DengXian Light', 'Microsoft YaHei UI Light', system-ui, sans-serif;
+  --role-font-weight: 300;
+  --role-bubble-radius: 12px;
+}
+body[data-role="maid"] {
+  --role-accent: #ffb347;
+  --role-accent-soft: rgba(255, 179, 71, 0.15);
+  --role-accent-glow: rgba(255, 179, 71, 0.55);
+  --role-border: rgba(255, 179, 71, 0.4);
+  --role-bg: #1a1216;
+  --role-bg-panel: #251820;
+  --role-font: 'YouYuan', 'KaiTi', 'Microsoft YaHei UI', sans-serif;
+  --role-font-weight: 500;
+  --role-bubble-radius: 14px;
+}
+body[data-role="guard"] {
+  --role-accent: #ff2d55;
+  --role-accent-soft: rgba(255, 45, 85, 0.12);
+  --role-accent-glow: rgba(255, 45, 85, 0.55);
+  --role-border: rgba(255, 45, 85, 0.4);
+  --role-bg: #0d0808;
+  --role-bg-panel: #180a0c;
+  --role-font: 'SimHei', 'Microsoft YaHei', system-ui, sans-serif;
+  --role-font-weight: 600;
+  --role-bubble-radius: 2px;
+}
+body[data-role="user"] {
+  --role-accent: #8b95a8;
+  --role-accent-soft: rgba(139, 149, 168, 0.12);
+  --role-accent-glow: rgba(139, 149, 168, 0.4);
+  --role-border: rgba(139, 149, 168, 0.35);
+  --role-bg: #101418;
+  --role-bg-panel: #161b22;
+  --role-font: system-ui, -apple-system, sans-serif;
+  --role-font-weight: 400;
+  --role-bubble-radius: 8px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+}
+
+#diary-win {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: var(--role-bg);
+  border: 1px solid var(--role-border);
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.6), 0 0 80px var(--role-accent-soft);
+  border-radius: var(--role-bubble-radius);
+  font-family: var(--role-font);
+  font-weight: var(--role-font-weight);
+  overflow: hidden;
+}
+
+#titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: rgba(15, 26, 36, 0.95);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  -webkit-app-region: drag;
+}
+
+#titlebar .title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #e8eaef;
+  font-size: 13px;
+}
+
+#titlebar .icon {
+  color: var(--role-accent);
+}
+
+#date-label {
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+#weather-label {
+  color: #8b95a8;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+#titlebar .controls {
+  -webkit-app-region: no-drag;
+  display: flex;
+  gap: 6px;
+}
+
+#titlebar button {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #a8b4c5;
+  border-radius: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+#titlebar button:hover {
+  color: var(--role-accent);
+  border-color: var(--role-border);
+}
+
+#tabs {
+  display: flex;
+  gap: 0;
+  background: var(--role-bg-panel);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0 12px;
+}
+
+#tabs .tab {
+  flex: 0 0 auto;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #6b7a99;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+#tabs .tab:hover {
+  color: #c5cdd8;
+}
+
+#tabs .tab.active {
+  color: var(--role-accent);
+  border-bottom-color: var(--role-accent);
+  font-weight: 600;
+}
+
+#body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #e8eaef;
+}
+
+#body::-webkit-scrollbar {
+  width: 6px;
+}
+
+#body::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+#body::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.4);
+  border-radius: 3px;
+}
+
+#body::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.6);
+}
+
+#body .entry {
+  margin-bottom: 18px;
+}
+
+#body .entry .line {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 1px;
+}
+
+#body .time {
+  color: #6b7a99;
+  flex-shrink: 0;
+  font-size: 10px;
+}
+
+#body .tag {
+  display: inline-block;
+  padding: 0 5px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  color: #8b95a8;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+#body .speaker {
+  color: var(--role-accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+#body .text {
+  color: #c5cdd8;
+}
+
+#body .empty {
+  text-align: center;
+  color: #6b7a99;
+  padding: 60px 20px;
+  font-family: system-ui, sans-serif;
+}
+
+#body .user-empty {
+  text-align: center;
+  color: #6b7a99;
+  padding: 80px 20px;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+#footer {
+  padding: 8px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+  color: #6b7a99;
+  text-align: center;
+}
+/* ===== 角色配色覆盖：让日记窗口跟对话窗口一致 ===== */
+
+/* 标题栏跟角色 */
+#titlebar {
+  background: var(--role-bg-panel);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* 顶部微光（跟 chat 一致） */
+#diary-win::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 10%; right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--role-accent), transparent);
+  opacity: 0.4;
+  pointer-events: none;
+  z-index: 10;
+}
+#diary-win { position: relative; }
+
+/* tab 栏背景跟角色 */
+#tabs {
+  background: var(--role-bg-panel);
+}
+
+/* 每条日记做成气泡卡片（跟 AI 气泡样式一致） */
+#body .entry {
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  background: rgb(from var(--role-accent) r g b / 0.08);
+  border: 1px solid rgb(from var(--role-accent) r g b / 0.15);
+  border-left: 2px solid var(--role-accent);
+  border-radius: 4px;
+  box-shadow: 0 0 12px rgb(from var(--role-accent) r g b / 0.05);
+  transition: all 0.25s ease;
+}
+#body .entry:hover {
+  background: rgb(from var(--role-accent) r g b / 0.12);
+  box-shadow: 0 0 18px rgb(from var(--role-accent) r g b / 0.12);
+}
+
+/* 时间戳 */
+#body .time {
+  color: var(--role-accent);
+  opacity: 0.75;
+  font-weight: 500;
+}
+
+/* 标签胶囊跟角色 */
+#body .tag {
+  background: rgb(from var(--role-accent) r g b / 0.12);
+  color: var(--role-accent);
+  border: 1px solid rgb(from var(--role-accent) r g b / 0.25);
+}
+
+/* 正文 */
+#body .text {
+  color: #e8eaef;
+}
+
+/* 底部提示栏 */
+#footer {
+  background: var(--role-bg-panel);
+}
+
+/* 图标和按钮 hover 跟角色（如果之前是硬编码的） */
+#titlebar .icon {
+  color: var(--role-accent);
+}
+/* ===== 女仆专属：粉+嫩黄氛围（跟 chat 一致） ===== */
+body[data-role="maid"] #diary-win {
+ background:
+    radial-gradient(ellipse 85% 60% at 50% -15%, rgba(255, 235, 160, 0.90), transparent 65%),
+    radial-gradient(ellipse 95% 70% at 50% 115%, rgba(255, 130, 160, 0.30), transparent 68%),
+    radial-gradient(ellipse 50% 45% at 15% 50%,  rgba(255, 200, 130, 0.01), transparent 70%),
+    linear-gradient(165deg, #3e2833 0%, #727d1d 100%) !important;
+}
+
+/* 女仆的标题栏和 tab 栏也提亮 */
+body[data-role="maid"] #titlebar,
+body[data-role="maid"] #tabs,
+body[data-role="maid"] #footer {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 235, 220, 0.14),
+    rgba(255, 200, 210, 0.10)
+  );
+  border-color: rgba(255, 200, 210, 0.18);
+}
+
+/* 女仆日记卡片更亮更粉 */
+body[data-role="maid"] #body .entry {
+  background: rgba(255, 210, 200, 0.10);
+  border: 1px solid rgba(255, 180, 170, 0.28);
+  border-left: 2px solid var(--role-accent);
+  box-shadow: 0 0 14px rgba(255, 179, 71, 0.10);
+}
+body[data-role="maid"] #body .entry:hover {
+  background: rgba(255, 210, 200, 0.16);
+  box-shadow: 0 0 20px rgba(255, 179, 71, 0.20);
+}
+
+/* 女仆时间戳和标签 */
+body[data-role="maid"] #body .time {
+  color: #ffd8a8;
+}
+body[data-role="maid"] #body .tag {
+  background: rgba(255, 200, 160, 0.18);
+  color: #ffc98a;
+  border-color: rgba(255, 200, 160, 0.35);
+}

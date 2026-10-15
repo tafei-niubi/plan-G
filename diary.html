@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>G计划 · 日记</title>
+  <link rel="stylesheet" href="diary.css" />
+</head>
+<body data-role="captain">
+  <div id="diary-win">
+    <div id="titlebar">
+      <div class="title">
+        <span class="icon">✎</span>
+        <span id="date-label">2026-10-15</span>
+        <span id="weather-label"></span>
+      </div>
+      <div class="controls">
+        <button id="prev-day" title="前一天">‹</button>
+        <button id="today-btn" title="回到今天">今天</button>
+        <button id="next-day" title="后一天">›</button>
+        <button id="close-btn" title="关闭">✕</button>
+      </div>
+    </div>
+    <div id="tabs">
+      <button class="tab active" data-role="captain">◈ 舰长</button>
+      <button class="tab" data-role="maid">❀ 女仆</button>
+      <button class="tab" data-role="guard">⛨ 守卫</button>
+      <button class="tab" data-role="user">✎ 我</button>
+    </div>
+    <div id="body"></div>
+    <div id="footer">
+      <span id="hint">日记会自动生成 · 每次事件各角色各说一句</span>
+    </div>
+  </div>
+  <script src="diary.js"></script>
+</body>
+</html>

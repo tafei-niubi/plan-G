@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>守卫提示</title>
+  <link rel="stylesheet" href="pwd-confirm.css" />
+</head>
+<body>
+  <!-- 密码确认面板 -->
+  <div id="pwd-panel" class="panel">
+    <div class="panel-header">
+      <span class="panel-icon" style="color:#ff2d55;">⛨</span>
+      <span class="panel-title" style="color:#ff2d55;">守卫发现疑似密码</span>
+      <button class="panel-close" aria-label="关闭">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="panel-type" id="pwd-site">来自：未知网站</div>
+      <div class="panel-pass" id="pwd-pass" style="color:#ff2d55;">••••••</div>
+    </div>
+    <div class="panel-actions">
+      <button id="pwd-no">跳过</button>
+      <button id="pwd-yes">加入密码库</button>
+    </div>
+  </div>
+
+  <!-- 敏感信息面板 -->
+  <div id="sensitive-panel" class="panel" style="display:none;">
+    <div class="panel-header">
+      <span class="panel-icon" style="color:#ff9d00;">⛨</span>
+      <span class="panel-title" style="color:#ff9d00;">守卫提醒</span>
+      <button class="panel-close" aria-label="关闭">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="panel-type" id="sensitive-type">检测到疑似敏感信息</div>
+      <div class="panel-pass" id="sensitive-preview">••••••</div>
+      <div class="panel-advice" id="sensitive-advice"></div>
+    </div>
+  </div>
+
+  <script src="pwd-confirm.js"></script>
+</body>
+</html>

@@ -207,8 +207,11 @@ const VOICE_FX = {
 };
 
 let currentAudioNodes = null;
+let diarySpeaking = false;
+let diaryAudioNode = null;
 
 async function speakAndPlay(text) {
+  if (diarySpeaking) return;   // 日记朗读期间，气泡语音全部跳过
   if (!ttsEnabled) return;
   const t = String(text || '').trim();
   if (!t || t.length > 200) return;
@@ -218,8 +221,17 @@ async function speakAndPlay(text) {
       try { currentAudioNodes.stop(); } catch (e) {}
       currentAudioNodes = null;
     }
-    const res = await window.petAPI.playByText(t);
-    if (!res || !res.ok) return; // 无匹配 → 静默
+    let res = await window.petAPI.playByText(t);
+    if (!res || !res.ok) {
+      // 预录没有 → 走实时合成
+      const role = document.body.dataset.role || 'captain';
+      try {
+        res = await window.petAPI.synthRealtime(t, role);
+      } catch (e) {
+        res = { ok: false };
+      }
+    }
+    if (!res || !res.ok) return;
 
     const ctx = getAudioCtx();
     if (ctx.state === 'suspended') await ctx.resume();
@@ -272,6 +284,89 @@ async function speakAndPlay(text) {
     src.onended = () => { if (currentAudioNodes === src) currentAudioNodes = null; };
   } catch (e) {
     console.error('[TTS]', e);
+  }
+}
+
+async function speakAndPlayWithRole(text, role) {
+  if (!ttsEnabled) return;
+  const t = String(text || '').trim();
+  if (!t || t.length > 200) return;
+
+  // 抢占：日记朗读之前若有别的日记在读，先停掉
+  if (diaryAudioNode) {
+    try { diaryAudioNode.stop(); } catch (e) {}
+    diaryAudioNode = null;
+  }
+  if (currentAudioNodes) {
+    try { currentAudioNodes.stop(); } catch (e) {}
+    currentAudioNodes = null;
+  }
+
+  // 标记进入日记朗读模式（期间所有 bubble 语音静音）
+  diarySpeaking = true;
+
+  try {
+    const res = await window.petAPI.synthRealtime(t, role);
+    if (!res || !res.ok) {
+      diarySpeaking = false;
+      return;
+    }
+
+    const ctx = getAudioCtx();
+    if (ctx.state === 'suspended') await ctx.resume();
+
+    const base64 = res.dataUrl.split(',')[1];
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const audioBuf = await ctx.decodeAudioData(bytes.buffer);
+
+    const fx = VOICE_FX[role] || VOICE_FX.captain;
+
+    const src = ctx.createBufferSource();
+    src.buffer = audioBuf;
+
+    const highpass = ctx.createBiquadFilter();
+    highpass.type = 'highpass';
+    highpass.frequency.value = fx.lowCut;
+
+    const lowpass = ctx.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.value = fx.highCut;
+
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = makeDistortionCurve(fx.drive * 100);
+    shaper.oversample = '2x';
+
+    const gainNode = ctx.createGain();
+    gainNode.gain.value = fx.gain;
+
+    src.connect(highpass);
+    highpass.connect(lowpass);
+    lowpass.connect(shaper);
+    shaper.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    if (fx.reverb > 0) {
+      const convolver = ctx.createConvolver();
+      convolver.buffer = makeReverbImpulse(ctx, fx.reverb);
+      const wet = ctx.createGain();
+      wet.gain.value = 0.25;
+      gainNode.connect(convolver);
+      convolver.connect(wet);
+      wet.connect(ctx.destination);
+    }
+
+    src.start(0);
+    diaryAudioNode = src;
+
+    src.onended = () => {
+      if (diaryAudioNode === src) diaryAudioNode = null;
+      diarySpeaking = false;
+    };
+  } catch (e) {
+    console.error('[TTS-日记]', e);
+    diarySpeaking = false;
   }
 }
 
@@ -590,7 +685,7 @@ const QUICK_ACTIONS = [
   // ===== 右列 =====
   { id: 'translate', icon: '◐', label: '翻译',     en: 'TRANS',   x: +0.36, y: -0.25 },
   { id: 'assist',    icon: '✦', label: '划词助手', en: 'ASSIST',  x: +0.33, y: -0.05 },
-  { id: 'about',     icon: 'i', label: '关于',     en: 'ABOUT',   x: +0.36, y: +0.15 },
+    { id: 'diary',     icon: '✎', label: '日记',     en: 'DIARY',   x: +0.36, y: +0.15 },
   { id: 'role',      icon: '⟳', label: '切换角色', en: 'ROLE',    x: +0.24, y: +0.40 },
 ];
 
@@ -675,8 +770,12 @@ function runQuickAction(id) {
     doBalance();
     return;
   }
-  if (id === 'settings' || id === 'help' || id === 'about') {
+    if (id === 'settings' || id === 'help') {
     bubble('待开发', 2000);
+    return;
+  }
+  if (id === 'diary') {
+    if (window.petAPI && window.petAPI.quickAction) window.petAPI.quickAction('diary');
     return;
   }
 
@@ -848,111 +947,9 @@ api.onAction((name, value) => {
     case 'whisper': doWhisper(false); break;
     case 'balance': doBalance(); break;
     case 'clipboard-hint': bubble('先选中文字,再按 Alt+Shift+A', 3200); break;
+    case 'diary-placeholder': bubble('日记窗口开发中，稍后上线', 2500); break;
   }
 });
-
-const sessionDetectedKeys = new Set();
-
-if (window.petAPI.onPasswordDetected) {
-  window.petAPI.onPasswordDetected(async (data) => {
-    const text = typeof data === 'string' ? data : (data && data.pass) || '';
-    if (!text) return;
-    const site = (data && data.site) || '';
-    const user = (data && data.user) || '';
-    // 会话内去重：用 网站+用户名 做 key（如果没有 user 就退化到密码）
-    const key = (site && user) ? (site + '|' + user) : ('pass|' + text);
-    if (sessionDetectedKeys.has(key)) return;
-    // 密码库去重：检查是否已存在 网站+用户名 相同 或（无 site/user 时）密码相同 的条目
-    try {
-      if (window.vaultAPI && window.vaultAPI.list) {
-        const res = await window.vaultAPI.list();
-        if (res && res.ok && Array.isArray(res.entries)) {
-          const exists = res.entries.some(en => {
-            if (site && user && en.site === site && en.user === user) return true;
-            if (!site && !user && en.pass === text) return true;
-            return false;
-          });
-          if (exists) { sessionDetectedKeys.add(key); return; }
-        }
-      }
-    } catch (e) {}
-    sessionDetectedKeys.add(key);
-    const modal = document.getElementById('pwd-confirm');
-    const siteEl = document.getElementById('pwd-confirm-site');
-    const passEl = document.getElementById('pwd-confirm-pass');
-    if (!modal) return;
-    let hint = '来自：' + (site || '未知网站');
-    if (user) hint += ' · ' + user;
-    siteEl.textContent = hint;
-    passEl.textContent = text.length > 6 ? text.slice(0, 3) + '••••••' + text.slice(-2) : '••••••';
-    modal.classList.remove('sensitive-hidden');
-    modal.style.animation = 'none';
-    void modal.offsetWidth;
-    modal.style.animation = '';
-    const cleanup = () => {
-      modal.classList.add('sensitive-hidden');
-      document.getElementById('pwd-confirm-yes').onclick = null;
-      document.getElementById('pwd-confirm-no').onclick = null;
-      clearTimeout(modal.__autoHide);
-    };
-    document.getElementById('pwd-confirm-yes').onclick = () => {
-      cleanup();
-      if (window.petAPI.openWithPassword) {
-        window.petAPI.openWithPassword({ pass: text, site: site, user: user });
-      }
-    };
-    document.getElementById('pwd-confirm-no').onclick = cleanup;
-    modal.__autoHide = setTimeout(cleanup, 15000);
-  });
-}
-
-if (window.petAPI.onSensitiveDetected) {
-  window.petAPI.onSensitiveDetected((data) => {
-    if (!data) return;
-    const modal = document.getElementById('sensitive-confirm');
-    if (!modal) return;
-    const t = document.getElementById('sensitive-type');
-    const p = document.getElementById('sensitive-preview');
-    if (t) t.textContent = '检测到疑似' + (data.type || '敏感信息');
-    if (p) {
-      const s = String(data.text || '');
-      p.textContent = s.length > 8 ? s.slice(0, 4) + '••••••' + s.slice(-4) : '••••••';
-    }
-    const adv = document.getElementById('sensitive-advice');
-    if (adv) adv.textContent = data.advice ? '💡 ' + data.advice : '';
-    modal.classList.remove('sensitive-hidden');
-    // 每次重新触发，重新播放动画
-    modal.style.animation = 'none';
-    void modal.offsetWidth;
-    modal.style.animation = '';
-    clearTimeout(modal.__hideTimer);
-    modal.__hideTimer = setTimeout(() => {
-      modal.classList.add('sensitive-hidden');
-    }, 6000);
-  });
-}
-
-if (window.petAPI.onSuspicious) {
-  window.petAPI.onSuspicious((data) => {
-    if (!data) return;
-    const modal = document.getElementById('sensitive-confirm');
-    if (!modal) return;
-    const t = document.getElementById('sensitive-type');
-    const p = document.getElementById('sensitive-preview');
-    const adv = document.getElementById('sensitive-advice');
-    if (t) t.textContent = '⛨ 检测到可疑连接';
-    if (p) p.textContent = '[' + (data.ip || '') + ':' + (data.port || '') + ']，是否需要查看？';
-    if (adv) adv.textContent = '';
-    modal.classList.remove('sensitive-hidden');
-    modal.style.animation = 'none';
-    void modal.offsetWidth;
-    modal.style.animation = '';
-    clearTimeout(modal.__hideTimer);
-    modal.__hideTimer = setTimeout(() => {
-      modal.classList.add('sensitive-hidden');
-    }, 8000);
-  });
-}
 
 function setClickThroughVisual(on) {
   document.body.classList.toggle('ghost', on);
@@ -1064,6 +1061,12 @@ if (window.petAPI && window.petAPI.onMaidRemindersChanged) {
 }
 if (window.petAPI && window.petAPI.onWallBounceChanged) {
   window.petAPI.onWallBounceChanged((on) => { wallBounceEnabled = !!on; });
+}
+if (window.petAPI && window.petAPI.onDiarySpeak) {
+  window.petAPI.onDiarySpeak((d) => {
+    if (!d || !d.text) return;
+    speakAndPlayWithRole(d.text, d.role || 'captain');
+  });
 }
 // ===== 鼠标穿透：只在人物或已打开的快捷盘盒子上才拦截 =====
 let lastPassthrough = null;

@@ -1,0 +1,97 @@
+* { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+
+html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
+
+body {
+  padding: 10px;
+  font-family: 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif;
+}
+
+/* 深色玻璃面板，颜色由各面板的 --accent 变量决定（敏感信息默认橙色，密码面板覆盖为红色） */
+.panel {
+  --accent: #ff9d00;
+  --accent-glow: rgba(255, 157, 0, 0.3);
+  --accent-soft: rgba(255, 157, 0, 0.15);
+  --accent-border: rgba(255, 157, 0, 0.7);
+  width: 320px;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, rgba(24, 9, 13, 0.96), rgba(12, 5, 8, 0.96));
+  border: 1.5px solid var(--accent-border);
+  border-radius: 12px;
+  box-shadow: 0 0 24px var(--accent-glow), 0 6px 18px rgba(0, 0, 0, 0.6);
+  color: #f5e8ea;
+}
+
+#pwd-panel {
+  --accent: #ff2d55;
+  --accent-glow: rgba(255, 45, 85, 0.35);
+  --accent-soft: rgba(255, 45, 85, 0.15);
+  --accent-border: rgba(255, 45, 85, 0.5);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--accent-soft);
+}
+
+.panel-icon { font-size: 14px; flex-shrink: 0; filter: drop-shadow(0 0 4px var(--accent-glow)); }
+
+.panel-title { font-size: 13px; font-weight: 600; letter-spacing: 1px; }
+
+.panel-close {
+  margin-left: auto;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: #a8888d;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.panel-close:hover { color: #f5e8ea; background: rgba(255, 255, 255, 0.08); }
+
+.panel-body { padding: 2px 0; }
+
+.panel-type { font-size: 12px; color: #f5e8ea; margin-bottom: 6px; line-height: 1.4; }
+
+.panel-pass {
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 14px;
+  letter-spacing: 1px;
+  word-break: break-all;
+  margin-bottom: 10px;
+  color: var(--accent);
+}
+
+.panel-advice {
+  font-size: 11px;
+  color: #a8888d;
+  margin-top: 8px;
+  padding-top: 8px;
+  line-height: 1.5;
+  border-top: 1px dashed rgba(255, 157, 0, 0.2);
+}
+
+.panel-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+.panel-actions button {
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  border: 1px solid var(--accent-border);
+  background: transparent;
+  color: #f5e8ea;
+  transition: all 0.2s;
+}
+.panel-actions button:hover { background: var(--accent-soft); }
+
+#pwd-yes { background: #ff2d55; color: #0d0808; font-weight: 600; border-color: #ff2d55; }
+#pwd-yes:hover { background: #ff5577; box-shadow: 0 0 12px rgba(255, 45, 85, 0.6); }
