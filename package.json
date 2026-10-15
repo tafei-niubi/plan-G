@@ -1,6 +1,6 @@
 {
   "name": "godzilla-pet",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "G计划 · 数据方舟 — 指挥官的数字生活中枢",
   "main": "main.js",
   "scripts": {
