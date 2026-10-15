@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>剪贴板历史</title>
+  <link rel="stylesheet" href="clipboard.css" />
+</head>
+<body data-role="captain">
+  <header id="titlebar">
+    <div class="title">📋 剪贴板历史</div>
+    <div class="controls">
+      <button id="pin" title="始终置顶">始终置顶</button>
+      <button id="close-btn" class="ctrl" title="关闭">✕</button>
+    </div>
+  </header>
+
+  <input id="search" type="text" placeholder="搜索..." />
+
+  <div id="list"></div>
+
+  <div id="footer">
+    <button id="clear-btn">清空未置顶</button>
+    <div class="hint">点击回贴 · 右键操作</div>
+  </div>
+
+  <script src="clipboard.js"></script>
+</body>
+</html>

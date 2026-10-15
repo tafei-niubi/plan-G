@@ -6,6 +6,10 @@ const petWrap = $('#pet-wrapper');
 
 let ttsEnabled = true;
 let currentAudio = null;
+let maidRemindersEnabled = true;
+let wallBounceEnabled = true;
+let cachedStatus = { battery: 'ok', cpu: 'ok', mem: 'ok', net: 'ok' };
+let busyUntil = 0;
 
 
 const STATUS_DIALOGUES = {
@@ -75,7 +79,7 @@ function pick(arr) {
   return choice;
 }
 
-const WALL_LINES = ['哎哟!撞墙啦', 'Duang~ 这墙好硬', '痛痛痛,本舰撞到了!', '哼,敢挡本舰的路!', '哦吼,弹回去~','我要出去!!!'];
+//const WALL_LINES = ['哎哟!撞墙啦', 'Duang~ 这墙好硬', '痛痛痛,本舰撞到了!', '哼,敢挡本舰的路!', '哦吼,弹回去~','我要出去!!!'];
 
 const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -103,13 +107,27 @@ function setFacing(d) {
   }
 }
 function setPos(x, y) {
-  // 始终把窗口夹在工作区内,不越出屏幕边缘
-  const minX = S.wa.x;
-  const maxX = S.wa.x + S.wa.width - S.w;
-  const minY = S.wa.y;
-  const maxY = S.wa.y + S.wa.height - S.h;
-  x = Math.max(minX, Math.min(x, maxX));
-  y = Math.max(minY, Math.min(y, maxY));
+  // 允许窗口超出屏幕，只要人物立绘不出屏
+  const pet = document.getElementById('pet-image');
+  const stage = document.getElementById('stage');
+  if (pet && stage) {
+    const stageRect = stage.getBoundingClientRect();
+    const petRect = pet.getBoundingClientRect();
+    // 人物相对窗口的偏移（窗口左上角为原点）
+    const petLeftInWin   = petRect.left   - stageRect.left;
+    const petRightInWin  = petRect.right  - stageRect.left;
+    const petTopInWin    = petRect.top    - stageRect.top;
+    const petBottomInWin = petRect.bottom - stageRect.top;
+
+    // 窗口允许移动到的最小/最大位置：只要人物不出屏
+    const minX = S.wa.x - petLeftInWin;
+    const maxX = S.wa.x + S.wa.width - petRightInWin;
+    const minY = S.wa.y - petTopInWin;
+    const maxY = S.wa.y + S.wa.height - petBottomInWin;
+
+    x = Math.max(minX, Math.min(x, maxX));
+    y = Math.max(minY, Math.min(y, maxY));
+  }
   S.x = x; S.y = y;
   api.setPosition(Math.round(x), Math.round(y));
 }
@@ -132,7 +150,24 @@ function bubble(text, ms = 2600) {
       petImg.classList.remove('speaking');
     }, speakMs);
   }
+  const len = String(text).length;
+  const busyMs = Math.max(3000, len * 160 + 3000);
+  busyUntil = Math.max(busyUntil, Date.now() + busyMs);
   speakAndPlay(String(text));
+}
+
+function requestMaidReminder(text, stayMs, onShown) {
+  if (!maidRemindersEnabled) return;
+  const wait = busyUntil - Date.now();
+  const delay = wait > 0 ? (wait + 3000) : 0;
+  const run = () => {
+    if (!maidRemindersEnabled) return;
+    api.tempSwitchRole && api.tempSwitchRole('maid', 15000);
+    bubble(text, stayMs || 5000);
+    if (typeof onShown === 'function') onShown();
+  };
+  if (delay > 0) setTimeout(run, delay);
+  else run();
 }
 
 // ===== TTS + 电音效果 =====
@@ -252,23 +287,23 @@ function spawnFx(inner, cls, x, y) {
 
 
 // ---- 行为 ----
-let lastWallBounce = 0;
-function wallSquash() {
-  const el = document.getElementById('pet-image');
-  if (!el) return;
-  el.classList.remove('squash');
-  void el.offsetWidth; // 强制重排,重启动画
-  el.classList.add('squash');
-  setTimeout(() => el.classList.remove('squash'), 320);
-}
-function onWallBounce() {
-  wallSquash();
-  spawnFx('💥', 'wallbump', S.facing === -1 ? '16%' : '84%', '42%');
-  if (Date.now() - lastWallBounce > 6000) {
-    lastWallBounce = Date.now();
-    bubble(rand(WALL_LINES), 1600);
-  }
-}
+//let lastWallBounce = 0;
+//function wallSquash() {
+//  const el = document.getElementById('pet-image');
+//  if (!el) return;
+//  el.classList.remove('squash');
+//  void el.offsetWidth; // 强制重排,重启动画
+//  el.classList.add('squash');
+//  setTimeout(() => el.classList.remove('squash'), 320);
+//}
+//function onWallBounce() {
+//  wallSquash();
+//  spawnFx('💥', 'wallbump', S.facing === -1 ? '16%' : '84%', '42%');
+//if (Date.now() - lastWallBounce > 6000) {
+//WallBounce = Date.now();
+//bubble(rand(WALL_LINES), 1600);
+// }
+//}
 
 
 // 被甩出去后的乒乓碰撞:带重力下坠 + 四面弹墙 + 摩擦减速到停下
@@ -277,33 +312,62 @@ async function doFling(vx, vy) {
   const token = actionToken;
   S.pending = null;
   setFacing(vx < 0 ? -1 : 1);
-  const GRAVITY = 0.0008;   // px/ms²,让鱼下坠、砸到底部更有力
-  const RESTITUTION = 0.7;  // 撞墙后保留的能量
-  const FRICTION = 1;    // 水平摩擦
-  const minX = S.wa.x, maxX = S.wa.x + S.wa.width - S.w;
-  const minY = S.wa.y, maxY = S.wa.y + S.wa.height - S.h;
+
+  // ★ 拿人物在窗口内的位置，用人物边界做碰撞检测（不用窗口边界）
+  const petEl = document.getElementById('pet-image');
+  const stageEl = document.getElementById('stage');
+  if (!petEl || !stageEl) return;
+  const stageRect = stageEl.getBoundingClientRect();
+  const petRect = petEl.getBoundingClientRect();
+  const petLeftInWin   = petRect.left   - stageRect.left;
+  const petRightInWin  = petRect.right  - stageRect.left;
+  const petTopInWin    = petRect.top    - stageRect.top;
+  const petBottomInWin = petRect.bottom - stageRect.top;
+
+  // 窗口允许的范围：只要人物不出屏
+  const minX = S.wa.x - petLeftInWin;
+  const maxX = S.wa.x + S.wa.width  - petRightInWin;
+  const minY = S.wa.y - petTopInWin;
+  const maxY = S.wa.y + S.wa.height - petBottomInWin;
+
+  const GRAVITY = 0.0008;
+  const RESTITUTION = 0.7;
+  const FRICTION = 1;
   let last = performance.now();
   const t0 = last;
   let restFrames = 0;
   while (restFrames < 25 && performance.now() - t0 < 10000) {
-    if (token !== actionToken) return; // 被打断
+    if (token !== actionToken) return;
     const now = performance.now();
     const dt = Math.min(now - last, 40);
     last = now;
-    vy += GRAVITY * dt; // 重力下坠
+    vy += GRAVITY * dt;
     let nx = S.x + vx * dt;
     let ny = S.y + vy * dt;
-    if (nx < minX) { nx = minX; if (vx < -0.2) { vx = -vx * RESTITUTION; setFacing(1); onWallBounce(); } else vx = 0; }
-    else if (nx > maxX) { nx = maxX; if (vx > 0.2) { vx = -vx * RESTITUTION; setFacing(-1); onWallBounce(); } else vx = 0; }
-    if (ny < minY) { ny = minY; if (vy < -0.2) { vy = -vy * RESTITUTION; onWallBounce(); } else vy = 0; }
-    else if (ny > maxY) { ny = maxY; if (vy > 0.2) { vy = -vy * RESTITUTION; onWallBounce(); } else vy = 0; }
+    if (nx < minX) {
+      nx = minX;
+      if (wallBounceEnabled && vx < -0.2) { vx = -vx * RESTITUTION; setFacing(1); }
+      else vx = 0;
+    } else if (nx > maxX) {
+      nx = maxX;
+      if (wallBounceEnabled && vx > 0.2) { vx = -vx * RESTITUTION; setFacing(-1); }
+      else vx = 0;
+    }
+    if (ny < minY) {
+      ny = minY;
+      if (wallBounceEnabled && vy < -0.2) { vy = -vy * RESTITUTION; }
+      else vy = 0;
+    } else if (ny > maxY) {
+      ny = maxY;
+      if (wallBounceEnabled && vy > 0.2) { vy = -vy * RESTITUTION; }
+      else vy = 0;
+    }
     setPos(nx, ny);
     vx *= FRICTION;
-    // 贴着下边界且速度很小 → 趋于静止
     if (ny >= maxY - 0.5 && Math.abs(vx) < 0.15 && Math.abs(vy) < 0.3) restFrames++;
     else restFrames = 0;
     await sleep(16);
-  }
+  }   
 }
 
 
@@ -328,8 +392,7 @@ async function loop() {
         if (!window.__morningGreeted && now - appStartTime > 5000) {
           window.__morningGreeted = true;
           if (hour >= 5 && hour < 12) {
-            api.tempSwitchRole && api.tempSwitchRole('maid', 15000);
-            bubble('早上好呀，主人~ 今天也要元气满满哦！', 6000);
+            requestMaidReminder('早上好呀，主人~ 今天也要元气满满哦！', 6000);
           }
         }
 
@@ -342,8 +405,7 @@ async function loop() {
             '主人，辛苦了！喝口水、伸个懒腰、看看远处，让眼睛和身体都休息一下~',
             '主人~ 你的身体需要照顾啦：喝水 + 起身 + 眺望远方，三件事一起做吧！',
           ];
-          api.tempSwitchRole && api.tempSwitchRole('maid', 15000);
-          bubble(HEALTH_LINES[Math.floor(Math.random() * HEALTH_LINES.length)], 7000);
+          requestMaidReminder(HEALTH_LINES[Math.floor(Math.random() * HEALTH_LINES.length)], 7000);
           lastHealthReminder = now;
         }
 
@@ -351,11 +413,11 @@ async function loop() {
         const EX_INTERVAL = 90 * 60 * 1000;
         if (hour >= 9 && hour < 21 && now - lastExerciseReminder > EX_INTERVAL) {
           lastExerciseReminder = now;
-          api.tempSwitchRole && api.tempSwitchRole('maid', 15000);
-          bubble('主人，想不想做个小运动放松一下呀？', 5000);
-          setTimeout(() => {
-            if (window.petAPI && window.petAPI.openExercise) window.petAPI.openExercise();
-          }, 1000);
+          requestMaidReminder('主人，想不想做个小运动放松一下呀？', 5000, () => {
+            setTimeout(() => {
+              if (window.petAPI && window.petAPI.openExercise) window.petAPI.openExercise();
+            }, 1000);
+          });
         }
 
         // ===== 午餐提醒（11:30-12:30 一次）=====
@@ -365,8 +427,7 @@ async function loop() {
               '主人，到饭点啦~ 记得好好吃饭，别饿着自己哦！',
               '午餐时间到了，主人去吃点东西吧，我在这等你回来~',
             ];
-            api.tempSwitchRole && api.tempSwitchRole('maid', 15000);
-            bubble(LUNCH_LINES[Math.floor(Math.random() * LUNCH_LINES.length)], 6000);
+            requestMaidReminder(LUNCH_LINES[Math.floor(Math.random() * LUNCH_LINES.length)], 6000);
             lastLunchReminder = now;
           }
         }
@@ -378,8 +439,7 @@ async function loop() {
               '主人，该吃晚饭啦~ 今天想吃点什么呢？',
               '晚餐时间到~ 主人别忘了好好吃饭哦！',
             ];
-            api.tempSwitchRole && api.tempSwitchRole('maid', 15000);
-            bubble(DINNER_LINES[Math.floor(Math.random() * DINNER_LINES.length)], 6000);
+            requestMaidReminder(DINNER_LINES[Math.floor(Math.random() * DINNER_LINES.length)], 6000);
             lastDinnerReminder = now;
           }
         }
@@ -391,8 +451,7 @@ async function loop() {
             '主人辛苦啦，做点喜欢的事放松一下吧~',
             '连续工作好久啦，主人记得善待自己哦~',
           ];
-          api.tempSwitchRole && api.tempSwitchRole('maid', 15000);
-          bubble(MOOD_LINES[Math.floor(Math.random() * MOOD_LINES.length)], 6000);
+          requestMaidReminder(MOOD_LINES[Math.floor(Math.random() * MOOD_LINES.length)], 6000);
           lastMoodCare = now;
         }
 
@@ -404,8 +463,7 @@ async function loop() {
             '夜深了，主人该睡觉啦，我明天再陪你~',
             '主人，熬夜会变丑的哦，快去休息吧~',
           ];
-          api.tempSwitchRole && api.tempSwitchRole('maid', 15000);
-          bubble(NIGHT_LINES[Math.floor(Math.random() * NIGHT_LINES.length)], 6000);
+          requestMaidReminder(NIGHT_LINES[Math.floor(Math.random() * NIGHT_LINES.length)], 6000);
           lastNightWarn = now;
         }
 
@@ -416,8 +474,7 @@ async function loop() {
               '主人，该准备睡觉啦~ 记得刷牙洗脸哦！',
               '晚安时间快到啦，主人早点睡，做个好梦~',
             ];
-            api.tempSwitchRole && api.tempSwitchRole('maid', 15000);
-            bubble(SLEEP_LINES[Math.floor(Math.random() * SLEEP_LINES.length)], 6000);
+            requestMaidReminder(SLEEP_LINES[Math.floor(Math.random() * SLEEP_LINES.length)], 6000);
             lastSleepReminder = now;
           }
         }
@@ -433,15 +490,27 @@ let velX = 0, velY = 0, lastX = 0, lastY = 0, lastT = 0;
 let wheelPressed = false; // 自己记录中键(滚轮键)按下状态,避免依赖 wheel.buttons 的误报
 
 stage.addEventListener('mousedown', async (e) => {
-  if (e.button === 1) { wheelPressed = true; e.preventDefault(); return; } // 中键进入缩放模式
+  if (e.button === 1) { wheelPressed = true; e.preventDefault(); return; }
   if (e.button === 2) return;
-  actionToken++;        // 打断正在进行的移动 / 甩飞
+
+  // 记录点击（用于 mouseup 判断 tap）
+  downT = Date.now(); downX = e.screenX; downY = e.screenY;
+
+  // ★ 只有点到人物立绘矩形内，才进入拖拽流程
+  const pet = document.getElementById('pet-image');
+  if (pet) {
+    const r = pet.getBoundingClientRect();
+    const inPet = e.clientX >= r.left && e.clientX <= r.right &&
+                  e.clientY >= r.top  && e.clientY <= r.bottom;
+    if (!inPet) return;  // 点空白 → 不拖拽
+  }
+
+  actionToken++;
   S.pending = null;
   wheelPressed = false;
-  downT = Date.now(); moved = 0;
-  downX = e.screenX; downY = e.screenY;
+  moved = 0;
   velX = 0; velY = 0; lastX = e.screenX; lastY = e.screenY; lastT = performance.now();
-  dragging = true;      // ← 挪到 await 前面
+  dragging = true;
   e.preventDefault();
   startWin = await api.getPosition();
 });
@@ -450,6 +519,7 @@ window.addEventListener('mousemove', (e) => {
   const dx = e.screenX - downX, dy = e.screenY - downY;
   moved = Math.max(moved, Math.abs(dx) + Math.abs(dy));
   if (moved > 4) {
+    if (!S.dragging) closeQuickPanel(); // 开始拖拽时收起快捷盘
     S.dragging = true;
     setPos(startWin.x + dx, startWin.y + dy);
     const now = performance.now();
@@ -459,14 +529,22 @@ window.addEventListener('mousemove', (e) => {
   }
 });
 window.addEventListener('mouseup', (e) => {
-  if (e.button === 1) { wheelPressed = false; return; } // 松开中键退出缩放
-  if (!dragging) return;
+  if (e.button === 1) { wheelPressed = false; return; }
+
+  const dt = Date.now() - downT;
+
+  // ★ 没进入拖拽（点空白 / 点人物但没移动）
+  if (!dragging) {
+    if (dt < 350) onTap(e.clientX, e.clientY);  // 走 tap → onTap 内部会判断是否点人物中心
+    return;
+  }
+
   dragging = false;
   const wasDrag = S.dragging;
   S.dragging = false;
-  const dt = Date.now() - downT;
-  if (!wasDrag && dt < 350) { onTap(); return; }
-  // 甩出:松手前若已停顿超 100ms 视为放下;否则按最后位移速度弹飞
+  if (!wasDrag && dt < 350) { onTap(e.clientX, e.clientY); return; }
+
+  // 甩飞逻辑（保持原样）
   const stale = performance.now() - lastT > 100;
   const vx = stale ? 0 : velX;
   const vy = stale ? 0 : velY;
@@ -477,7 +555,11 @@ window.addEventListener('mouseup', (e) => {
   }
 });
 stage.addEventListener('contextmenu', (e) => { e.preventDefault(); api.showContextMenu(); });
-stage.addEventListener('dblclick', pat);
+stage.addEventListener('dblclick', () => {
+  clearTimeout(tapTimer);
+  tapTimer = null;
+  if (window.petAPI && window.petAPI.quickAction) window.petAPI.quickAction('chat');
+});
 
 // 滚轮缩放(0.25x – 2x):按住中键 + 滚动才触发
 let lastWheel = 0;
@@ -494,30 +576,211 @@ window.addEventListener('wheel', (e) => {
   api.resize(dir).then((k) => bubble('缩放 ' + Math.round(k * 100) + '%', 1100));
 }, { passive: false });
 
-let cachedStatus = { battery: 'ok', cpu: 'ok', mem: 'ok' };
+// ---- 快捷操作盘（全息悬浮） ----
+// 功能框以窗口中心为原点,x/y 范围约 ±0.45
+// 通用功能（左 4 + 右 4，专属插在左列中间）
+// 通用功能（左 4 + 右 4，专属插在左列中间）
+const QUICK_ACTIONS = [
+  // ===== 左列 =====
+  { id: 'chat',      icon: '▤', label: '对话',     en: 'CHAT',    x: -0.28, y: -0.44 },
+  { id: 'clipboard', icon: '▣', label: '剪贴板',   en: 'CLIP',    x: -0.40, y: -0.22 },
+  { id: 'help',      icon: '?', label: '帮助',     en: 'HELP',    x: -0.38, y: +0.22 },
+  { id: 'settings',  icon: '⚙', label: '设置',     en: 'SET',     x: -0.26, y: +0.40 },
 
-async function onTap() {
-  // 先立刻用缓存的状态说一句（不等待检测）
-  if (typeof bubble === 'function' && typeof pickStatusLine === 'function') {
-    bubble(pickStatusLine(cachedStatus), 3500);
-  }
-  // 后台异步刷新状态，供下次点击使用
-  if (window.petAPI && window.petAPI.getSystemStatus) {
-    try {
-      const fresh = await window.petAPI.getSystemStatus();
-      if (fresh) cachedStatus = fresh;
-    } catch (e) {}
-  }
+  // ===== 右列 =====
+  { id: 'translate', icon: '◐', label: '翻译',     en: 'TRANS',   x: +0.36, y: -0.25 },
+  { id: 'assist',    icon: '✦', label: '划词助手', en: 'ASSIST',  x: +0.33, y: -0.05 },
+  { id: 'about',     icon: 'i', label: '关于',     en: 'ABOUT',   x: +0.36, y: +0.15 },
+  { id: 'role',      icon: '⟳', label: '切换角色', en: 'ROLE',    x: +0.24, y: +0.40 },
+];
+
+const ROLE_EXTRA = {
+  captain: [
+    { id: 'notebook', icon: '▥', label: '笔记本', en: 'NOTES',   x: -0.34, y: 0.00 },
+    { id: 'balance',  icon: '¥', label: '余额',   en: 'BALANCE', x: +0.26, y: -0.44 },
+  ],
+  maid: [
+    { id: 'exercise', icon: '❀', label: '运动',   en: 'MOVE',    x: -0.34, y: 0.00 },
+    { id: 'balance',  icon: '¥', label: '余额',   en: 'BALANCE', x: +0.26, y: -0.44 },
+  ],
+  guard: [
+    { id: 'vault',   icon: '⛨', label: '密码库', en: 'VAULT',   x: -0.34, y: 0.00 },
+    { id: 'console', icon: '◈', label: '控制台', en: 'CONSOLE', x: +0.26, y: -0.44 },
+  ],
+};
+
+const BTN_W = 110;
+const BTN_H = 48;
+
+let tapTimer = null;      // 单击延迟计时器：区分单击 / 双击
+let quickPanelOpen = false;
+let quickCloseTimer = null;
+let quickArmTimer = null; // 打开后 200ms 才启用盒子点击
+
+function playSound(type) {
+  try {
+    const ctx = getAudioCtx();
+    if (ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+    const tone = (freq, t0, dur, vol, wave) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = wave || 'sine';
+      osc.frequency.setValueAtTime(freq, now + t0);
+      g.gain.setValueAtTime(vol, now + t0);
+      g.gain.exponentialRampToValueAtTime(0.001, now + t0 + dur);
+      osc.connect(g); g.connect(ctx.destination);
+      osc.start(now + t0); osc.stop(now + t0 + dur + 0.02);
+    };
+    if (type === 'open') { tone(620, 0, 0.09, 0.08); tone(860, 0.06, 0.1, 0.07); }
+    else if (type === 'click') { tone(880, 0, 0.08, 0.1, 'triangle'); }
+    else if (type === 'close') { tone(540, 0, 0.1, 0.08); tone(320, 0.05, 0.12, 0.06); }
+  } catch (e) {}
 }
-function pat() {
-  const PATTED = {
-    captain: ['收到，指挥官。', '指令已确认。', '系统响应正常。'],
-    maid: ['嘿嘿~ 好舒服！', '主人的手好温柔~', '嘻嘻，再摸一下嘛~'],
-    guard: ['警戒状态正常。', '收到，长官。', '系统待命中。'],
-  };
+
+function currentQuickItems() {
   const role = document.body.dataset.role || 'captain';
-  const pool = PATTED[role] || PATTED.captain;
-  bubble(pool[Math.floor(Math.random() * pool.length)], 3000); 
+  return QUICK_ACTIONS.concat(ROLE_EXTRA[role] || []);
+}
+
+function buildQuickPanel() {
+  const panel = document.getElementById('quick-panel');
+  if (!panel) return;
+  panel.innerHTML = '';
+  currentQuickItems().forEach((item, i) => {
+    const box = document.createElement('div');
+    box.className = 'qa-box';
+    box.dataset.id = item.id;
+    box.innerHTML =
+      '<span class="qa-icon">' + item.icon + '</span>' +
+      '<span class="qa-text">' +
+        '<span class="qa-label">' + item.label + '</span>' +
+        '<span class="qa-en">' + item.en + '</span>' +
+      '</span>' +
+      '<span class="qa-num">' + String(i + 1).padStart(2, '0') + '</span>';
+    box.addEventListener('mousedown', (e) => e.stopPropagation());
+    box.addEventListener('mouseup', (e) => e.stopPropagation());
+    box.addEventListener('dblclick', (e) => e.stopPropagation());
+    box.addEventListener('click', (e) => { e.stopPropagation(); runQuickAction(item.id); });
+    panel.appendChild(box);
+  });
+}
+
+function runQuickAction(id) {
+  playSound('click');
+  closeQuickPanel();
+
+  // 本地功能：不需要走 main.js
+  if (id === 'balance') {
+    doBalance();
+    return;
+  }
+  if (id === 'settings' || id === 'help' || id === 'about') {
+    bubble('待开发', 2000);
+    return;
+  }
+
+  // 其余走主进程
+  if (window.petAPI && window.petAPI.quickAction) window.petAPI.quickAction(id);
+}
+
+function layoutQuickPanel() {
+  const panel = document.getElementById('quick-panel');
+  if (!panel) return;
+  const rect = stage.getBoundingClientRect();
+  const w = rect.width, h = rect.height;
+  const items = currentQuickItems();
+  const boxes = panel.querySelectorAll('.qa-box');
+  boxes.forEach((box, i) => {
+    const item = items[i];
+    const cx = w / 2 + item.x * w;
+    const cy = h / 2 + item.y * h;
+    const left = Math.max(0, Math.min(cx - BTN_W / 2, w - BTN_W));
+    const top = Math.max(0, Math.min(cy - BTN_H / 2, h - BTN_H));
+    box.style.left = left + 'px';
+    box.style.top = top + 'px';
+  });
+}
+
+function openQuickPanel() {
+  buildQuickPanel();
+  const panel = document.getElementById('quick-panel');
+  if (!panel) return;
+  quickPanelOpen = true;
+  clearTimeout(quickCloseTimer);
+  clearTimeout(quickArmTimer);
+  layoutQuickPanel();
+  panel.classList.remove('hidden');
+  panel.classList.remove('closing');
+  playSound('open');
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    panel.querySelectorAll('.qa-box').forEach((b) => b.classList.add('open'));
+  }));
+  // 防手快误触:打开后 200ms 才启用盒子点击
+  quickArmTimer = setTimeout(() => panel.classList.add('active'), 200);
+}
+
+function closeQuickPanel() {
+  if (!quickPanelOpen) return;
+  const panel = document.getElementById('quick-panel');
+  if (!panel) return;
+  quickPanelOpen = false;
+  clearTimeout(quickArmTimer);
+  panel.classList.remove('active');
+  playSound('close');
+  panel.classList.add('closing');
+  panel.querySelectorAll('.qa-box').forEach((b) => b.classList.remove('open'));
+  clearTimeout(quickCloseTimer);
+  quickCloseTimer = setTimeout(() => {
+    panel.classList.add('hidden');
+    panel.classList.remove('closing');
+  }, 200);
+}
+
+function toggleQuickPanel() {
+  if (quickPanelOpen) closeQuickPanel();
+  else openQuickPanel();
+}
+
+function updateQuickPanelForRole() {
+  buildQuickPanel();
+  if (!quickPanelOpen) return;
+  layoutQuickPanel();
+  const panel = document.getElementById('quick-panel');
+  panel.querySelectorAll('.qa-box').forEach((b) => b.classList.add('open'));
+}
+
+function isNearPetCenter(cx, cy) {
+  const pet = document.getElementById('pet-image');
+  if (!pet) return false;
+  const r = pet.getBoundingClientRect();
+  const dx = cx - (r.left + r.width / 2);
+  const dy = cy - (r.top + r.height / 2);
+  return Math.hypot(dx, dy) < r.width * 0.3;
+}
+
+function onTap(cx, cy) {
+  clearTimeout(tapTimer);
+  tapTimer = setTimeout(() => {
+    tapTimer = null;
+    if (quickPanelOpen) {
+      closeQuickPanel();
+      return;
+    }
+    if (!isNearPetCenter(cx, cy)) return;
+
+    // ★ 打开快捷盘 + 说一句状态台词
+    openQuickPanel();
+    if (typeof bubble === 'function' && typeof pickStatusLine === 'function') {
+      bubble(pickStatusLine(cachedStatus), 3500);
+    }
+    // 后台异步刷新状态，下次点击用新数据
+    if (window.petAPI && window.petAPI.getSystemStatus) {
+      window.petAPI.getSystemStatus().then(s => {
+        if (s) cachedStatus = s;
+      }).catch(() => {});
+    }
+  }, 250);
 }
 
 // ---- 余额 / 碎碎念 ----
@@ -549,6 +812,7 @@ api.onAction((name, value) => {
     case 'role-key': {
         const r = String(value || 'captain');
         document.body.dataset.role = r;
+        updateQuickPanelForRole();
         const HUD_COLORS = {
           captain: { primary: '#00e5ff', secondary: '#ff2d95', glow: '0, 229, 255' },
           maid:    { primary: '#ffb347', secondary: '#ff8fa3', glow: '255, 179, 71' },
@@ -730,16 +994,23 @@ async function init() {
   if (window.petAPI && window.petAPI.getTTSEnabled) {
     window.petAPI.getTTSEnabled().then(on => { ttsEnabled = !!on; }).catch(() => {});
   }
+  if (window.petAPI && window.petAPI.getMaidRemindersEnabled) {
+    window.petAPI.getMaidRemindersEnabled().then(on => { maidRemindersEnabled = !!on; }).catch(() => {});
+  }
+    if (window.petAPI && window.petAPI.getWallBounceEnabled) {
+    window.petAPI.getWallBounceEnabled().then(on => { wallBounceEnabled = !!on; }).catch(() => {});
+  }
   if (cfg.hunger != null) S.hunger = cfg.hunger;
   if (cfg.fun != null) S.fun = cfg.fun;
   if (cfg.energy != null) S.energy = cfg.energy;
   S.wa = await api.getWorkArea();
   await refreshSize();
     // 初始化警戒状态（开局就读一次系统状态）
-  if (window.petAPI && window.petAPI.getSystemStatus) {
+   if (window.petAPI && window.petAPI.getSystemStatus) {
     try {
       const s = await window.petAPI.getSystemStatus();
       applySystemAlert(s);
+      if (s) cachedStatus = s;
     } catch (e) {}
   }
   sendTrayIcon();
@@ -749,7 +1020,8 @@ async function init() {
   if (cfg.whisperEnabled !== false) {
     setInterval(() => { if (!S.sleeping) doWhisper(true); }, 1800000);
   }
-  loop();
+  loop();  // 默认全窗口穿透（鼠标不在人物上时点桌面）
+  api.setMousePassthrough(true);
 }
 init();
 
@@ -777,6 +1049,7 @@ if (window.petAPI.onNotebookToast) {
 if (window.petAPI && window.petAPI.onSystemStatusChanged) {
   window.petAPI.onSystemStatusChanged((status) => {
     applySystemAlert(status);
+        if (status) cachedStatus = status;
     // 只在有明显异常时才主动说，正常状态不打扰
     if (status.battery === 'low' || status.net === 'off') {
       bubble(pickStatusLine(status), 5000);
@@ -786,3 +1059,45 @@ if (window.petAPI && window.petAPI.onSystemStatusChanged) {
 if (window.petAPI && window.petAPI.onTTSEnabledChanged) {
   window.petAPI.onTTSEnabledChanged((on) => { ttsEnabled = !!on; });
 }
+if (window.petAPI && window.petAPI.onMaidRemindersChanged) {
+  window.petAPI.onMaidRemindersChanged((on) => { maidRemindersEnabled = !!on; });
+}
+if (window.petAPI && window.petAPI.onWallBounceChanged) {
+  window.petAPI.onWallBounceChanged((on) => { wallBounceEnabled = !!on; });
+}
+// ===== 鼠标穿透：只在人物或已打开的快捷盘盒子上才拦截 =====
+let lastPassthrough = null;
+
+function shouldPassthrough(x, y) {
+  const pet = document.getElementById('pet-image');
+  if (!pet) return true;
+  const r = pet.getBoundingClientRect();
+  if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return false;
+
+  if (quickPanelOpen) {
+    const boxes = document.querySelectorAll('#quick-panel .qa-box');
+    for (const b of boxes) {
+      const br = b.getBoundingClientRect();
+      if (x >= br.left && x <= br.right && y >= br.top && y <= br.bottom) return false;
+    }
+  }
+  return true;
+}
+
+function updatePassthrough(x, y) {
+  const pass = shouldPassthrough(x, y);
+  if (pass !== lastPassthrough) {
+    lastPassthrough = pass;
+    api.setMousePassthrough(pass);
+  }
+}
+
+// 鼠标移动时动态检查
+document.addEventListener('mousemove', (e) => {
+  // 拖拽中不切换穿透（否则鼠标一离开人物就断了）
+  if (typeof dragging !== 'undefined' && dragging) return;
+  updatePassthrough(e.clientX, e.clientY);
+});
+
+// 打开/关闭快捷盘时立刻更新（因为盒子出现/消失会改变可点区域）
+// ——在 openQuickPanel / closeQuickPanel 里调用

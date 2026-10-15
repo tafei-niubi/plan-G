@@ -46,3 +46,31 @@ $('#copy').addEventListener('click', async () => {
 });
 
 src.focus();
+
+(async () => {
+  try {
+    const key = await window.roleAPI.getCurrent();
+    if (key) document.body.dataset.role = key;
+  } catch (e) {}
+})();
+if (window.roleAPI) {
+  window.roleAPI.onRoleChange((key) => {
+    if (key) document.body.dataset.role = key;
+  });
+}
+
+(() => {
+  const pinBtn = document.getElementById('pin');
+  if (!pinBtn || !window.windowAPI) return;
+  const KEY = 'translate';
+  let on = false;
+  (async () => {
+    try { on = await window.windowAPI.getAlwaysOnTop(KEY); } catch (e) {}
+    pinBtn.classList.toggle('active', !!on);
+  })();
+  pinBtn.addEventListener('click', async () => {
+    on = !on;
+    await window.windowAPI.setAlwaysOnTop(KEY, on);
+    pinBtn.classList.toggle('active', on);
+  });
+})();

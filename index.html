@@ -10,16 +10,31 @@
       --hud-primary: #00e5ff;
       --hud-secondary: #ff2d95;
       --hud-glow-rgb: 0, 229, 255;
+      --role-accent: #00e5ff;
+      --role-accent-hover: #33ecff;
+      --role-glow: rgba(0, 229, 255, 0.4);
+      --role-soft: rgba(0, 229, 255, 0.1);
+      --role-border: rgba(0, 229, 255, 0.5);
     }
     body[data-role="maid"] {
       --hud-primary: #ffb347;
       --hud-secondary: #ff8fa3;
       --hud-glow-rgb: 255, 179, 71;
+      --role-accent: #ffb347;
+      --role-accent-hover: #ffc670;
+      --role-glow: rgba(255, 179, 71, 0.4);
+      --role-soft: rgba(255, 179, 71, 0.1);
+      --role-border: rgba(255, 179, 71, 0.5);
     }
     body[data-role="guard"] {
       --hud-primary: #ff2d55;
       --hud-secondary: #ff9d00;
       --hud-glow-rgb: 255, 45, 85;
+      --role-accent: #ff2d55;
+      --role-accent-hover: #ff5577;
+      --role-glow: rgba(255, 45, 85, 0.4);
+      --role-soft: rgba(255, 45, 85, 0.1);
+      --role-border: rgba(255, 45, 85, 0.5);
     }
 
     /* ===== HUD 全息环 ===== */
@@ -146,6 +161,7 @@
 
     <div id="bubble"></div>
     <div id="fx"></div>
+    <div id="quick-panel" class="hidden"></div>
 
     <div id="pwd-confirm" class="sensitive-hidden" style="top:8%; left:6%;">
       <div class="sensitive-bubble" style="border-color:rgba(255,45,85,0.7); box-shadow:0 0 20px rgba(255,45,85,0.25), 0 4px 16px rgba(0,0,0,0.6);">

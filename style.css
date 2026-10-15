@@ -7,14 +7,13 @@ html, body { width: 100%; height: 100%; background: transparent; overflow: hidde
 
 #pet-wrapper {
   position: absolute;
-  left: 0;
-  right: 0;
-  top: 30%;
-  bottom: 0;
-  height: auto;
-  /* 让整个"光圈+立绘"组合下移到窗口下半部 */
+  left: 25%;
+  right: 25%;
+  top: 32.5%;
+  bottom: 32.5%;
   transform-origin: 50% 50%;
 }
+#pet-wrapper.facing-right { transform: scaleX(-1); }
 #pet-wrapper.facing-right { transform: scaleX(-1); }
 
 body.ghost #stage { opacity: 0.45; }
@@ -275,4 +274,116 @@ body[data-role="guard"] #bubble::after { border-top-color: #1a0808; }
   border-right: 8px solid transparent;
   border-top: 10px solid rgba(30, 8, 12, 0.96);
   filter: drop-shadow(0 1px 0 rgba(255, 157, 0, 0.7));
+}
+
+/* ===== 快捷操作盘（全息悬浮） ===== */
+#quick-panel {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+#quick-panel.hidden { display: none; }
+
+.qa-box {
+  position: absolute;
+  width: 90px;
+  height: 33px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: linear-gradient(135deg, rgb(from var(--role-accent) r g b / 0.15), rgb(from var(--role-accent) r g b / 0.05));
+  border: 1px solid var(--role-accent);
+  box-shadow: 0 0 12px rgb(from var(--role-accent) r g b / 0.35), inset 0 0 16px rgb(from var(--role-accent) r g b / 0.08);
+  backdrop-filter: blur(6px);
+  color: var(--role-accent);
+  cursor: pointer;
+  opacity: 0;
+  scale: 0.7;
+  transition: opacity 0.3s ease-out, scale 0.3s ease-out, box-shadow 0.25s ease;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  animation: hologramFloat 3s ease-in-out infinite;
+}
+#quick-panel.active .qa-box { pointer-events: auto; }
+
+.qa-box.open {
+  opacity: 1;
+  scale: 1;
+  animation: qaBoxIn 0.3s ease-out backwards, hologramFloat 3s ease-in-out infinite;
+}
+/* 出现错开(i*40ms) + 浮动相位错开(i*0.4s) */
+.qa-box.open:nth-child(1)  { animation-delay: 0s,    0s; }
+.qa-box.open:nth-child(2)  { animation-delay: 0.04s, 0.4s; }
+.qa-box.open:nth-child(3)  { animation-delay: 0.08s, 0.8s; }
+.qa-box.open:nth-child(4)  { animation-delay: 0.12s, 1.2s; }
+.qa-box.open:nth-child(5)  { animation-delay: 0.16s, 1.6s; }
+.qa-box.open:nth-child(6)  { animation-delay: 0.2s,  2s; }
+.qa-box.open:nth-child(7)  { animation-delay: 0.24s, 2.4s; }
+.qa-box.open:nth-child(8)  { animation-delay: 0.28s, 2.8s; }
+.qa-box.open:nth-child(9)  { animation-delay: 0.32s, 3.2s; }
+.qa-box.open:nth-child(10) { animation-delay: 0.36s, 3.6s; }
+
+/* 收起:反向 200ms ease-in */
+#quick-panel.closing .qa-box {
+  transition: opacity 0.2s ease-in, scale 0.2s ease-in, box-shadow 0.2s ease-in;
+}
+
+.qa-box:hover {
+  scale: 1.05;
+  box-shadow: 0 0 20px rgb(from var(--role-accent) r g b / 0.6), inset 0 0 20px rgb(from var(--role-accent) r g b / 0.15);
+  animation-play-state: paused;
+}
+
+@keyframes hologramFloat {
+  0%, 100% { translate: 0 0; }
+  50%      { translate: 0 -4px; }
+}
+@keyframes qaBoxIn {
+  from { opacity: 0; scale: 0.7; }
+  to   { opacity: 1; scale: 1; }
+}
+
+/* 图标 + 中文/英文双行 */
+.qa-icon { font-size: 16px; flex-shrink: 0; line-height: 1; }
+.qa-text { display: flex; flex-direction: column; gap: 1px; }
+.qa-label { font-size: 11px; font-weight: 500; line-height: 1.1; }
+.qa-en { font-size: 8px; opacity: 0.5; letter-spacing: 1px; line-height: 1; }
+
+/* 右上角编号 01~09 */
+.qa-num {
+  position: absolute;
+  top: 3px;
+  right: 6px;
+  font-size: 8px;
+  opacity: 0.4;
+  letter-spacing: 1px;
+  line-height: 1;
+  font-family: 'Consolas', 'Courier New', monospace;
+}
+
+/* 顶部 1px 高光边 */
+.qa-box::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 10px;
+  right: 10px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.8), transparent);
+  pointer-events: none;
+}
+/* 底部细光带 */
+.qa-box::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  left: 12px;
+  right: 12px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--role-accent), transparent);
+  opacity: 0.5;
+  pointer-events: none;
 }

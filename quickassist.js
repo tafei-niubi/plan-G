@@ -11,6 +11,11 @@ const MODE_LABELS = { auto: '✨ 智能', translate: '🌐 翻译', explain: '�
 let sourceText = '';
 let currentMode = 'auto';
 let raw = '';
+const tabState = {
+  ai: { raw: '', html: '' },
+  tools: { raw: '', html: '' },
+};
+let currentTab = 'ai';
 let busy = false;
 let reqId = 0;
 
@@ -48,6 +53,7 @@ function setMode(mode) {
 function setBusy(b) {
   busy = b;
   document.querySelectorAll('.chip').forEach((c) => { c.disabled = b; });
+  document.querySelectorAll('.tool-btn').forEach((btn) => { btn.disabled = b; });
 }
 
 function startRun(mode, text) {
@@ -68,19 +74,36 @@ api.onStart((d) => { if (d && d.text) startRun(d.mode || 'auto', d.text); });
 api.onChunk((d) => {
   if (d.reqId !== reqId) return; // 丢弃过期请求的残留片段
   raw += d.text;
-  result.innerHTML = renderMd(raw);
-  result.scrollTop = result.scrollHeight;
+  const html = renderMd(raw);
+  tabState.ai.raw = raw;
+  tabState.ai.html = html;
+  if (currentTab === 'ai') {
+    result.innerHTML = html;
+    result.scrollTop = result.scrollHeight;
+  }
 });
 api.onDone((d) => {
   if (d.reqId !== reqId) return;
   setBusy(false);
-  if (!raw.trim() && d.text) { raw = d.text; result.innerHTML = renderMd(raw); }
-  if (!raw.trim()) result.innerHTML = renderMd('(没有结果)');
+  if (!raw.trim() && d.text) raw = d.text;
+  if (!raw.trim()) raw = '(没有结果)';
+  const html = renderMd(raw);
+  tabState.ai.raw = raw;
+  tabState.ai.html = html;
+  if (currentTab === 'ai') {
+    result.innerHTML = html;
+  }
 });
 api.onError((d) => {
   if (d.reqId !== reqId) return;
   setBusy(false);
-  result.innerHTML = renderMd(d.message || '出错了');
+  const html = renderMd(d.message || '出错了');
+  raw = '';
+  tabState.ai.raw = '';
+  tabState.ai.html = html;
+  if (currentTab === 'ai') {
+    result.innerHTML = html;
+  }
 });
 
 document.querySelectorAll('.chip').forEach((c) => {
@@ -96,3 +119,84 @@ $('#close').addEventListener('click', () => api.close());
 
 // 首次加载拉取待处理内容
 api.init().then((d) => { if (d && d.text) startRun(d.mode || 'auto', d.text); });
+
+(async () => {
+  try {
+    const key = await window.roleAPI.getCurrent();
+    if (key) document.body.dataset.role = key;
+  } catch (e) {}
+})();
+if (window.roleAPI) {
+  window.roleAPI.onRoleChange((key) => {
+    if (key) document.body.dataset.role = key;
+  });
+}
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const target = tab.dataset.tab;
+    if (target === currentTab) return;
+
+    // 保存当前 tab 的结果
+    tabState[currentTab].raw = raw;
+    tabState[currentTab].html = result.innerHTML;
+
+    // 切换 active 状态
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === target));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === target));
+
+    // 载入目标 tab 的结果
+    currentTab = target;
+    raw = tabState[target].raw;
+    if (tabState[target].html) {
+      result.innerHTML = tabState[target].html;
+      result.classList.remove('placeholder');
+    } else {
+      result.innerHTML = '<span class="placeholder">选中文字后按 Shift+Alt+A 使用</span>';
+      result.classList.add('placeholder');
+    }
+    copyBtn.textContent = '复制';
+  });
+});
+
+document.querySelectorAll('.tool-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    if (busy) return;
+    if (!sourceText) {
+      result.classList.add('placeholder');
+      result.textContent = '没有源文本，先选中一段文字打开我';
+      return;
+    }
+    const tool = btn.dataset.tool;
+    setBusy(true);
+    result.classList.remove('placeholder');
+    result.innerHTML = '<span class="placeholder">处理中…</span>';
+    const res = await api.tool({ tool, text: sourceText });
+    setBusy(false);
+    const html = res.ok
+      ? '<pre>' + escapeHtml(res.text) + '</pre>'
+      : '<span class="placeholder">✗ ' + escapeHtml((res && res.message) || '处理失败') + '</span>';
+    raw = res.ok ? res.text : '';
+    tabState.tools.raw = raw;
+    tabState.tools.html = html;
+    if (currentTab === 'tools') {
+      result.innerHTML = html;
+    }
+  });
+});
+const pinBtn = document.getElementById('pin');
+let alwaysOnTop = false;
+
+(async () => {
+  if (!pinBtn) return;
+  try {
+    alwaysOnTop = await api.getAlwaysOnTop();
+  } catch (e) {}
+  pinBtn.classList.toggle('active', !!alwaysOnTop);
+
+  pinBtn.addEventListener('click', async () => {
+    alwaysOnTop = !alwaysOnTop;
+    await api.setAlwaysOnTop(alwaysOnTop);
+    pinBtn.classList.toggle('active', alwaysOnTop);
+  });
+})();

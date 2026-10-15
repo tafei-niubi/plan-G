@@ -24,10 +24,16 @@ contextBridge.exposeInMainWorld('petAPI', {
   onNotebookToast: (cb) => ipcRenderer.on('notebook:toast', (e, d) => cb(d)),
   showSubtitle: (text) => ipcRenderer.send('subtitle:show', text),
   getSystemStatus: () => ipcRenderer.invoke('system:status'),
+    setMousePassthrough: (pass) => ipcRenderer.send('set-mouse-passthrough', pass),
   onSystemStatusChanged: (cb) => ipcRenderer.on('system:status-changed', (e, s) => cb(s)),
   playByText: (text) => ipcRenderer.invoke('tts:play-by-text', text),
   onTTSEnabledChanged: (cb) => ipcRenderer.on('tts:enabled-changed', (e, on) => cb(on)),
   getTTSEnabled: () => ipcRenderer.invoke('tts:get-enabled'),
+  getMaidRemindersEnabled: () => ipcRenderer.invoke('maid-reminders-enabled'),
+    getWallBounceEnabled: () => ipcRenderer.invoke('wall-bounce-enabled'),
+  onWallBounceChanged: (cb) => ipcRenderer.on('wall-bounce-changed', (e, on) => cb(on)),
+  onMaidRemindersChanged: (cb) => ipcRenderer.on('maid-reminders-changed', (e, on) => cb(on)),
+  quickAction: (action) => ipcRenderer.send('pet:quick-action', action),
 });
 
 contextBridge.exposeInMainWorld('translateAPI', {
@@ -40,6 +46,9 @@ contextBridge.exposeInMainWorld('translateAPI', {
 contextBridge.exposeInMainWorld('qaAPI', {
   init: () => ipcRenderer.invoke('qa:init'),
   run: (payload) => ipcRenderer.invoke('qa:run', payload),
+  tool: (payload) => ipcRenderer.invoke('qa:tool', payload),
+  getAlwaysOnTop: () => ipcRenderer.invoke('qa:get-always-on-top'),
+  setAlwaysOnTop: (on) => ipcRenderer.invoke('qa:set-always-on-top', on),
   writeClipboard: (t) => ipcRenderer.invoke('clipboard:write', t),
   close: () => ipcRenderer.send('qa:close'),
   onStart: (cb) => ipcRenderer.on('qa:start', (e, d) => cb(d)),
@@ -108,4 +117,25 @@ contextBridge.exposeInMainWorld('subtitleAPI', {
   onPlay: (cb) => ipcRenderer.on('subtitle:play', (e, d) => cb(d)),
   onRole: (cb) => ipcRenderer.on('subtitle:role', (e, key) => cb(key)),
   getRole: () => ipcRenderer.invoke('subtitle:get-role'),
+});
+
+contextBridge.exposeInMainWorld('clipboardHistoryAPI', {
+  list: () => ipcRenderer.invoke('clipboard-history:list'),
+  paste: (id) => ipcRenderer.invoke('clipboard-history:paste', id),
+  copyOnly: (id) => ipcRenderer.invoke('clipboard-history:copy-only', id),
+  del: (id) => ipcRenderer.invoke('clipboard-history:delete', id),
+  togglePin: (id) => ipcRenderer.invoke('clipboard-history:toggle-pin', id),
+  clearAll: () => ipcRenderer.invoke('clipboard-history:clear-all'),
+  readImage: (fn) => ipcRenderer.invoke('clipboard-history:read-image', fn),
+  close: () => ipcRenderer.send('clipboard-history:close'),
+});
+
+contextBridge.exposeInMainWorld('roleAPI', {
+  getCurrent: () => ipcRenderer.invoke('get-current-role'),
+  onRoleChange: (cb) => ipcRenderer.on('role-key', (e, key) => cb(key)),
+});
+
+contextBridge.exposeInMainWorld('windowAPI', {
+  getAlwaysOnTop: (key) => ipcRenderer.invoke('window:get-always-on-top', key),
+  setAlwaysOnTop: (key, on) => ipcRenderer.invoke('window:set-always-on-top', key, on),
 });

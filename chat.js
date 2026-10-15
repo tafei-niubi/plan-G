@@ -128,10 +128,73 @@ api.load().then((history) => {
   }
 });
 
+const EMPTY_CONFIG = {
+  captain: {
+    avatar: '◈',
+    title: '系统就绪',
+    sub: '指挥官，请下达指令。',
+  },
+  maid: {
+    avatar: '❀',
+    title: '主人，我在哦~',
+    sub: '有什么想跟我聊的吗？',
+  },
+  guard: {
+    avatar: '⛨',
+    title: '警戒中',
+    sub: '长官，随时待命。',
+  },
+};
+
 api.onRoleInfo((d) => {
-  if (d && d.name) document.getElementById('title').textContent = d.name;
+  if (!d || !d.key) return;
+  document.body.dataset.role = d.key;
+    // 触发切换动画
+  document.body.classList.remove('role-switching');
+  void document.body.offsetWidth;
+  document.body.classList.add('role-switching');
+  setTimeout(() => document.body.classList.remove('role-switching'), 700);
+  document.getElementById('title').textContent = d.name || '';
   const av = document.querySelector('.brand .avatar');
-  if (av && d && d.avatar) av.textContent = d.avatar;
+  if (av) av.textContent = d.avatar || '◈';
+  // 空状态文案
+  const conf = EMPTY_CONFIG[d.key];
+  if (conf) {
+    const ea = document.querySelector('.empty-avatar');
+    const et = document.querySelector('.empty-title');
+    const es = document.querySelector('.empty-sub');
+    if (ea) ea.textContent = conf.avatar;
+    if (et) et.textContent = conf.title;
+    if (es) es.textContent = conf.sub;
+  }
 });
 
 input.focus();
+
+(async () => {
+  try {
+    const key = await window.roleAPI.getCurrent();
+    if (key) document.body.dataset.role = key;
+  } catch (e) {}
+})();
+if (window.roleAPI) {
+  window.roleAPI.onRoleChange((key) => {
+    if (key) document.body.dataset.role = key;
+  });
+}
+
+(() => {
+  const pinBtn = document.getElementById('pin');
+  if (!pinBtn || !window.windowAPI) return;
+  const KEY = 'chat';
+  let on = false;
+  (async () => {
+    try { on = await window.windowAPI.getAlwaysOnTop(KEY); } catch (e) {}
+    pinBtn.classList.toggle('active', !!on);
+  })();
+  pinBtn.addEventListener('click', async () => {
+    on = !on;
+    await window.windowAPI.setAlwaysOnTop(KEY, on);
+    pinBtn.classList.toggle('active', on);
+  });
+})();

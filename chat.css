@@ -1,23 +1,84 @@
-/* ===== G计划 · AI管家风格 ===== */
 :root {
+  /* ===== 基础变量（原样保留，一个都不能删）===== */
   --bg: #0a0d12;
   --bg-panel: #111620;
   --text-main: #e8eaef;
   --text-secondary: #c5cdd8;
   --text-muted: #8b95a8;
-  --accent: #d4a056;
-  --accent-soft: rgba(212, 160, 86, 0.15);
   --primary: #5b8fd9;
   --primary-soft: rgba(91, 143, 217, 0.12);
-  --border: rgba(212, 160, 86, 0.14);
   --border-subtle: rgba(255, 255, 255, 0.07);
   --code-bg: #0c1018;
   --font-main: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
   --font-mono: 'Consolas', 'JetBrains Mono', monospace;
   --radius: 8px;
   --radius-sm: 4px;
-}
+    /* 字体 */
+  --role-font: 'DengXian Light', 'Microsoft YaHei UI Light', system-ui, sans-serif;
+  --role-font-weight: 300;
+  --role-title-spacing: 3px;
+  /* 圆角 */
+  --role-radius: 8px;
+  --role-bubble-user: 12px 4px 12px 12px;
+  --role-bubble-ai: 4px 12px 12px 12px;
+  --role-send-radius: 50%;
 
+  /* ===== 角色强调色（默认舰长）===== */
+  --role-accent: #00e5ff;
+  --role-accent-soft: rgba(0, 229, 255, 0.12);
+  --role-accent-glow: rgba(0, 229, 255, 0.5);
+  --role-accent-hover: #33ecff;
+  --role-border: rgba(0, 229, 255, 0.35);
+  --role-glow: rgba(0, 229, 255, 0.4);
+  --role-soft: rgba(0, 229, 255, 0.1);
+  --role-bg: #0a1018;
+  --role-bg-panel: #0f1a24;
+
+  /* ===== 别名：让旧代码直接用角色色 ===== */
+  --accent: var(--role-accent);
+  --accent-soft: var(--role-accent-soft);
+  --border: var(--role-border);
+}
+body[data-role="maid"] {
+    --bg: #1a1216;
+  --bg-panel: #251820;
+    --role-font: 'YouYuan', 'KaiTi', 'Microsoft YaHei UI', sans-serif;
+  --role-font-weight: 500;
+  --role-title-spacing: 1px;
+  --role-radius: 14px;
+  --role-bubble-user: 16px 16px 16px 4px;
+  --role-bubble-ai: 16px 16px 4px 16px;
+  --role-send-radius: 50% 0 50% 50%;
+  --role-accent: #ffb347;
+  --role-accent-soft: rgba(255, 179, 71, 0.15);
+  --role-accent-glow: rgba(255, 179, 71, 0.55);
+  --role-accent-hover: #ffc670;
+  --role-border: rgba(255, 179, 71, 0.4);
+  --role-glow: rgba(255, 179, 71, 0.4);
+  --role-soft: rgba(255, 179, 71, 0.1);
+  --role-bg: #1a1216;
+  --role-bg-panel: #251820;
+}
+body[data-role="guard"] {
+    --bg: #0d0808;
+  --bg-panel: #180a0c;
+    --role-font: 'SimHei', 'Microsoft YaHei', system-ui, sans-serif;
+  --role-font-weight: 600;
+  --role-title-spacing: 2px;
+  --role-radius: 2px;
+  --role-bubble-user: 0 0 0 0;
+  --role-bubble-ai: 0 0 0 0;
+  --role-send-radius: 2px;
+  --role-accent: #ff2d55;
+  --role-accent-soft: rgba(255, 45, 85, 0.12);
+  --role-accent-glow: rgba(255, 45, 85, 0.55);
+  --role-accent-hover: #ff5577;
+  --role-border: rgba(255, 45, 85, 0.4);
+  --role-glow: rgba(255, 45, 85, 0.4);
+  --role-soft: rgba(255, 45, 85, 0.1);
+  --role-bg: #0d0808;
+  --role-bg-panel: #180a0c;
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {
@@ -34,7 +95,9 @@ html, body {
   border-radius: var(--radius);
   overflow: hidden;
   font-family: var(--font-main);
-  box-shadow: 0 0 40px rgba(0, 0, 0, 0.6), 0 0 80px rgba(212, 160, 86, 0.04);
+    font-family: var(--role-font);
+  font-weight: var(--role-font-weight);
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.6), 0 0 80px rgb(from var(--role-accent) r g b / 0.04);
   position: relative;
   /* 注意：这里不加 -webkit-app-region: drag，避免污染子元素 */
 }
@@ -44,7 +107,7 @@ html, body {
   content: '';
   position: absolute; top: 0; left: 10%; right: 10%;
   height: 1px;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background: linear-gradient(90deg, transparent, var(--role-bg-panel)var(--role-accent), transparent);
   opacity: 0.4;
   pointer-events: none;
 }
@@ -53,7 +116,7 @@ html, body {
 #header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 16px;
-  background: rgba(17, 22, 32, 0.95);
+  background: var(--role-bg-panel);
   border-bottom: 1px solid var(--border-subtle);
   -webkit-app-region: drag;
   cursor: move;
@@ -62,14 +125,15 @@ html, body {
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand .avatar {
   font-size: 16px;
-  color: var(--accent);
-  filter: drop-shadow(0 0 6px rgba(212, 160, 86, 0.5));
+  color: var(--role-bg-panel)var(--role-accent);
+  filter: drop-shadow(0 0 6px rgb(from var(--role-accent) r g b / 0.5));
 }
 #title {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
-  letter-spacing: 3px;
+    letter-spacing: var(--role-title-spacing);
+  font-family: var(--role-font);
 }
 .actions {
   display: flex; gap: 8px;
@@ -87,9 +151,9 @@ html, body {
   -webkit-app-region: no-drag;
 }
 .actions button:hover {
-  color: var(--accent);
-  border-color: var(--border);
-  background: var(--accent-soft);
+  color: var(--role-bg-panel)var(--role-accent);
+  border-color: var(--role-border);
+  background: var(--role-accent-soft);
 }
 
 /* 消息外层容器：不可拖 */
@@ -123,11 +187,11 @@ html, body {
   border-radius: 4px;
 }
 #messages::-webkit-scrollbar-thumb {
-  background: rgba(212, 160, 86, 0.4);
+  background: var(--role-glow);
   border-radius: 4px;
 }
 #messages::-webkit-scrollbar-thumb:hover {
-  background: rgba(212, 160, 86, 0.75);
+  background: rgb(from var(--role-accent) r g b / 0.75);
 }
 
 /* 空状态 */
@@ -140,9 +204,9 @@ html, body {
 #empty.hidden { display: none; }
 .empty-avatar {
   font-size: 36px;
-  color: var(--accent);
+  color: var(--role-bg-panel)var(--role-accent);
   opacity: 0.6;
-  filter: drop-shadow(0 0 12px rgba(212, 160, 86, 0.3));
+  filter: drop-shadow(0 0 12px rgb(from var(--role-accent) r g b / 0.3));
   animation: pulse 3s ease-in-out infinite;
 }
 @keyframes pulse {
@@ -168,21 +232,21 @@ html, body {
   flex: 0 0 auto;
   width: 26px; height: 26px;
   border-radius: 50%;
-  background: var(--accent-soft);
-  border: 1px solid var(--border);
+  background: var(--role-accent-soft);
+  border: 1px solid var(--role-border);
   display: flex; align-items: center; justify-content: center;
   font-size: 13px;
-  color: var(--accent);
+  color: var(--role-bg-panel)var(--role-accent);
   margin-top: 2px;
 }
 
 /* 用户气泡 */
 .msg.user .bubble {
-  background: linear-gradient(135deg, rgba(212, 160, 86, 0.15), rgba(212, 160, 86, 0.08));
-  border: 1px solid rgba(212, 160, 86, 0.2);
+  background: linear-gradient(135deg, rgb(from var(--role-accent) r g b / 0.15), rgb(from var(--role-accent) r g b / 0.08));
+  border: 1px solid rgb(from var(--role-accent) r g b / 0.2);
   color: var(--text-main);
   padding: 10px 14px;
-  border-radius: 12px 4px 12px 12px;
+    border-radius: var(--role-bubble-user);
   font-size: 13.5px;
   line-height: 1.6;
   max-width: 78%;
@@ -190,11 +254,11 @@ html, body {
 
 /* AI气泡 */
 .msg.assistant .bubble {
-  background: var(--primary-soft);
-  border: 1px solid rgba(91, 143, 217, 0.15);
+   background: rgb(from var(--role-accent) r g b / 0.08);
+  border: 1px solid rgb(from var(--role-accent) r g b / 0.15);
   color: var(--text-secondary);
   padding: 10px 14px;
-  border-radius: 4px 12px 12px 12px;
+    border-radius: var(--role-bubble-ai);
   font-size: 13.5px;
   line-height: 1.7;
   max-width: 82%;
@@ -204,7 +268,7 @@ html, body {
 .content { word-break: break-word; }
 .content code {
   background: var(--code-bg);
-  color: var(--accent);
+  color: var(--role-bg-panel)var(--role-accent);
   padding: 2px 6px;
   border-radius: 3px;
   font-family: var(--font-mono);
@@ -232,7 +296,7 @@ html, body {
 /* 输入区：外层可拖窗口 */
 #input-area {
   padding: 12px 16px 14px;
-  background: rgba(17, 22, 32, 0.95);
+  background: var(--role-bg-panel);
   border-top: 1px solid var(--border-subtle);
   display: flex; flex-direction: column; gap: 8px;
   -webkit-app-region: drag;
@@ -252,8 +316,8 @@ html, body {
   cursor: text;
 }
 #input-box:focus-within {
-  border-color: var(--border);
-  box-shadow: 0 0 0 3px rgba(212, 160, 86, 0.05);
+  border-color: var(--role-border);
+  box-shadow: 0 0 0 3px rgb(from var(--role-accent) r g b / 0.05);
 }
 #input {
   flex: 1; border: none; background: transparent; outline: none;
@@ -269,22 +333,22 @@ html, body {
 #send {
   flex: 0 0 auto;
   width: 30px; height: 30px;
-  border-radius: 50%;
+  border-radius: var(--role-send-radius);
   border: none;
-  background: var(--accent);
-  color: #0a0d12;
+  background: var(--role-bg-panel)var(--role-accent);
+  color: var(--role-bg);
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   transition: all 0.25s ease;
   -webkit-app-region: no-drag;
 }
 #send:hover {
-  background: #e0b06a;
-  box-shadow: 0 0 16px rgba(212, 160, 86, 0.4);
+  background: var(--role-accent-hover);
+  box-shadow: 0 0 16px var(--role-glow);
   transform: scale(1.05);
 }
 #send:disabled {
-  background: rgba(212, 160, 86, 0.3);
+  background: rgb(from var(--role-accent) r g b / 0.3);
   cursor: default;
   transform: none;
   box-shadow: none;
@@ -294,4 +358,345 @@ html, body {
   color: var(--text-muted);
   text-align: center;
   letter-spacing: 0.5px;
+}
+
+#pin {
+  color: #aaa;
+  padding: 0 10px;
+  font-size: 12px;
+  min-width: 64px;
+  white-space: nowrap;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  -webkit-app-region: no-drag;
+}
+#pin:hover { color: #666; }
+#pin.active {
+  color: var(--role-accent);
+  border-color: var(--role-accent);
+  background: var(--role-soft);
+}
+/* ===== 角色切换特效 ===== */
+
+/* 舰长：全息扫描线从上往下 */
+@keyframes captainSwitch {
+  0%   { opacity: 0; clip-path: inset(0 0 100% 0); filter: brightness(2.5); }
+  40%  { opacity: 0.8; clip-path: inset(0 0 30% 0); filter: brightness(1.4); }
+  100% { opacity: 1; clip-path: inset(0 0 0 0); filter: brightness(1); }
+}
+body[data-role="captain"].role-switching #chat {
+  animation: captainSwitch 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 女仆：暖光从中心扩散 */
+@keyframes maidSwitch {
+  0%   { opacity: 0; transform: scale(0.94); filter: brightness(1.4) blur(4px); }
+  60%  { opacity: 1; filter: brightness(1.1) blur(1px); }
+  100% { opacity: 1; transform: scale(1); filter: brightness(1) blur(0); }
+}
+body[data-role="maid"].role-switching #chat {
+  animation: maidSwitch 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* 守卫：警报抖动 + 红光 */
+@keyframes guardSwitch {
+  0%   { opacity: 0; transform: translateX(-6px); filter: brightness(2) drop-shadow(0 0 20px #ff2d55); }
+  30%  { opacity: 0.7; transform: translateX(4px); }
+  60%  { transform: translateX(-2px); }
+  100% { opacity: 1; transform: translateX(0); filter: brightness(1); }
+}
+body[data-role="guard"].role-switching #chat {
+  animation: guardSwitch 0.45s ease-out;
+}
+
+/* 全息扫描线（所有角色共用） */
+#chat::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0;
+  top: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--role-accent), transparent);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 100;
+}
+body.role-switching #chat::after {
+  animation: roleScan 0.6s ease-out;
+}
+@keyframes roleScan {
+  0%   { opacity: 0; top: 0; }
+  15%  { opacity: 1; }
+  100% { opacity: 0; top: 100%; }
+}
+/* ========== 舰长：HUD 终端风 ========== */
+
+/* 顶部密集刻度线 */
+body[data-role="captain"] #header::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--role-accent) 0px, var(--role-accent) 1px,
+    transparent 1px, transparent 6px
+  );
+  opacity: 0.35;
+  pointer-events: none;
+}
+body[data-role="captain"] #header { position: relative; }
+
+/* 品牌图标外发光 */
+body[data-role="captain"] .brand .avatar {
+  text-shadow: 0 0 8px var(--role-accent);
+}
+
+/* 用户气泡右上切角 */
+body[data-role="captain"] .msg.user .bubble {
+  clip-path: polygon(
+    0 0, calc(100% - 8px) 0, 100% 8px,
+    100% 100%, 0 100%
+  );
+}
+
+/* ========== 女仆：暖光柔和风 ========== */
+
+body[data-role="maid"] #chat {
+  box-shadow:
+    0 0 40px rgba(0, 0, 0, 0.6),
+    0 0 80px rgba(255, 179, 71, 0.08),
+    inset 0 0 40px rgba(255, 143, 163, 0.04);
+}
+
+body[data-role="maid"] #header {
+  background: linear-gradient(
+    90deg,
+    rgba(40, 24, 28, 0.95),
+    rgba(50, 30, 36, 0.95),
+    rgba(40, 24, 28, 0.95)
+  );
+}
+
+/* 顶部波浪装饰 */
+body[data-role="maid"] #header::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--role-accent) 25%,
+    transparent 30%,
+    var(--role-accent) 50%,
+    transparent 55%,
+    var(--role-accent) 75%,
+    transparent 80%,
+    var(--role-accent) 100%
+  );
+  opacity: 0.4;
+  pointer-events: none;
+}
+body[data-role="maid"] #header { position: relative; }
+
+/* 品牌图标暖暖的光 */
+body[data-role="maid"] .brand .avatar {
+  text-shadow: 0 0 10px var(--role-accent), 0 0 20px rgba(255, 143, 163, 0.4);
+}
+
+/* 气泡 hover 轻微上浮 */
+body[data-role="maid"] .msg .bubble {
+  transition: transform 0.25s ease;
+}
+body[data-role="maid"] .msg .bubble:hover {
+  transform: translateY(-2px);
+}
+
+/* ========== 守卫：警戒终端风 ========== */
+
+/* 斜纹警戒底纹 */
+body[data-role="guard"] #chat {
+  background:
+    repeating-linear-gradient(
+      45deg,
+      rgba(255, 45, 85, 0.03),
+      rgba(255, 45, 85, 0.03) 6px,
+      transparent 6px,
+      transparent 12px
+    ),
+    var(--role-bg);
+}
+
+/* 顶部警报线闪烁 */
+body[data-role="guard"] #header::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--role-accent);
+  box-shadow: 0 0 8px var(--role-accent), 0 0 16px var(--role-accent);
+  animation: guardAlertPulse 2s ease-in-out infinite;
+  pointer-events: none;
+}
+body[data-role="guard"] #header { position: relative; }
+
+@keyframes guardAlertPulse {
+  0%, 100% { opacity: 0.3; }
+  50%      { opacity: 1; }
+}
+
+/* 标题倾斜 + 强发光 */
+body[data-role="guard"] #title {
+  transform: skewX(-3deg);
+  text-shadow:
+    0 0 6px var(--role-accent),
+    0 0 12px rgba(255, 45, 85, 0.6);
+  color: #ffd6da;
+}
+
+/* 用户气泡左侧红竖线 */
+body[data-role="guard"] .msg.user .bubble {
+  border-left: 2px solid var(--role-accent);
+  box-shadow: -4px 0 12px rgba(255, 45, 85, 0.15);
+}
+
+/* AI 头像方形化 + 警戒感 */
+body[data-role="guard"] .msg .avatar {
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+body[data-role="guard"] .msg .avatar > * {
+  transform: rotate(-45deg);
+}
+/* ===== 急救覆盖：清理残留灰色 ===== */
+
+/* 发送按钮 */
+#send {
+  background: var(--role-accent) !important;
+  color: var(--role-bg) !important;
+}
+#send:hover {
+  background: var(--role-accent-hover) !important;
+  box-shadow: 0 0 16px var(--role-accent-glow) !important;
+}
+#send:disabled {
+  background: rgb(from var(--role-accent) r g b / 0.3) !important;
+}
+
+/* 空状态图标 */
+.empty-avatar {
+  color: var(--role-accent) !important;
+  opacity: 0.85 !important;
+  filter: drop-shadow(0 0 12px var(--role-accent-glow)) !important;
+}
+
+/* 空状态标题 */
+.empty-title {
+  color: var(--role-accent) !important;
+}
+
+/* 品牌图标 */
+.brand .avatar {
+  color: var(--role-accent) !important;
+  filter: drop-shadow(0 0 8px var(--role-accent-glow)) !important;
+}
+
+/* AI 头像 */
+.msg .avatar {
+  color: var(--role-accent) !important;
+  background: var(--role-soft) !important;
+  border-color: var(--role-accent) !important;
+}
+
+/* 代码高亮 */
+.content code {
+  color: var(--role-accent) !important;
+}
+
+/* 顶部微光 */
+#chat::before {
+  background: linear-gradient(90deg, transparent, var(--role-accent), transparent) !important;
+}
+
+/* 头部按钮 hover */
+.actions button:hover {
+  color: var(--role-accent) !important;
+  background: var(--role-soft) !important;
+  border-color: var(--role-accent) !important;
+}
+/* ===== 氛围背景：女仆 ===== */
+/* ===== 氛围背景：女仆 · 粉+嫩黄 ===== */
+/* ===== 女仆 · 粉+嫩黄（加强版）===== */
+body[data-role="maid"] #chat {
+  background:
+    radial-gradient(ellipse 85% 60% at 50% -15%, rgba(255, 235, 160, 0.90), transparent 65%),
+    radial-gradient(ellipse 95% 70% at 50% 115%, rgba(255, 130, 160, 0.30), transparent 68%),
+    radial-gradient(ellipse 50% 45% at 15% 50%,  rgba(255, 200, 130, 0.01), transparent 70%),
+    linear-gradient(165deg, #3e2833 0%, #727d1d 100%) !important;
+}
+
+/* ===== 氛围背景：守卫 ===== */
+body[data-role="guard"] #chat {
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 0%, rgba(255, 45, 85, 0.15), transparent 70%),
+    radial-gradient(ellipse 70% 60% at 50% 100%, rgba(255, 45, 85, 0.08), transparent 70%),
+    repeating-linear-gradient(
+      45deg,
+      rgba(255, 45, 85, 0.04),
+      rgba(255, 45, 85, 0.04) 6px,
+      transparent 6px,
+      transparent 12px
+    ),
+    #1a0608 !important;
+}
+/* ===== 女仆 · 顶底浅色玻璃 ===== */
+body[data-role="maid"] #header {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 235, 220, 0.14),
+    rgba(255, 200, 210, 0.10)
+  ) !important;
+  border-bottom: 1px solid rgba(255, 200, 210, 0.18) !important;
+  backdrop-filter: blur(10px);
+}
+
+body[data-role="maid"] #input-area {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 200, 210, 0.10),
+    rgba(255, 235, 220, 0.14)
+  ) !important;
+  border-top: 1px solid rgba(255, 200, 210, 0.18) !important;
+  backdrop-filter: blur(10px);
+}
+
+/* 输入框本身也提亮 */
+body[data-role="maid"] #input-box {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 200, 210, 0.22) !important;
+}
+
+/* 顶部三个按钮的边框 */
+body[data-role="maid"] .actions button {
+  border-color: rgba(255, 200, 210, 0.25) !important;
+  color: #ffd8c2 !important;
+}
+body[data-role="maid"] .actions button:hover {
+  color: var(--role-accent) !important;
+  border-color: var(--role-accent) !important;
+  background: var(--role-soft) !important;
+}
+
+/* 标题 */
+body[data-role="maid"] #title {
+  color: #fff0e0 !important;
+}
+
+/* 品牌图标 */
+body[data-role="maid"] .brand .avatar {
+  color: var(--role-accent) !important;
 }

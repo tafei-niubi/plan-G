@@ -56,6 +56,7 @@ if (!gotTheLock) {
   });
   globalShortcut.register('Control+Shift+C', () => { showWin(); openChat(); });
   globalShortcut.register('Control+Shift+T', () => { openTranslate(); });
+  globalShortcut.register('Control+Shift+V', () => { openClipboardHistory(); });
   globalShortcut.register('Shift+Alt+A', () => { quickAssist('auto', true); });
   globalShortcut.register('Shift+Alt+S', () => { captureSelectionToNotebook(); });
   globalShortcut.register('Control+Shift+1', () => switchRole('captain'));
@@ -74,8 +75,8 @@ const ttsCacheDir = () => {
 };
 
 // 窗口基准尺寸(与动画素材 640×500 一致,16:9)
-const W = 640;
-const H = 700;
+const W = 1280;
+const H = 1400;
 
 const DEFAULT_SCALE = 0.6;
 const DEFAULT_PERSONA = '你是G-计划，指挥官专属的AI管家。你的风格像钢铁侠的贾维斯：专业、可靠、冷静，但内心关心指挥官。你称呼用户为“指挥官”。回答要简洁、有条理，不说废话。如果涉及操作，分点列出。你可以偶尔使用温和的幽默，但不要轻浮。你的职责是让指挥官的生活更顺畅，而不是让指挥官感觉到你在“服务”。';
@@ -127,6 +128,7 @@ let subtitleTimer = null;
 let vaultWin = null;
 let vaultKey = null; // 存在内存中，绝不写盘
 let lastClipboardText = '';
+let lastClipboardImageHash = '';
 let clipboardWatcher = null;
 let extServer = null;
 let guardWin = null;
@@ -135,6 +137,7 @@ let autoSwitchTimer = null;
 let roleBeforeAutoSwitch = null;
 let exerciseWin = null;
 let notebookWin = null;
+let clipWin = null;
 let splashWin = null;
 let lastSystemStatus = null;
 let ttsManifest = null;
@@ -153,6 +156,76 @@ const notebookAssetsDir = () => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return dir;
 };
+
+const clipboardHistoryPath = () => path.join(app.getPath('userData'), 'clipboard-history.json');
+const clipboardImagesDir = () => {
+  const dir = path.join(app.getPath('userData'), 'clipboard-images');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+};
+
+function readClipHistory() {
+  try { return JSON.parse(fs.readFileSync(clipboardHistoryPath(), 'utf8')); }
+  catch (e) { return { items: [] }; }
+}
+function writeClipHistory(data) {
+  try { fs.writeFileSync(clipboardHistoryPath(), JSON.stringify(data, null, 2)); }
+  catch (e) {}
+}
+
+function pushClipText(text) {
+  const s = String(text || '');
+  if (!s || s.length > 10000) return;
+  const data = readClipHistory();
+  if (!Array.isArray(data.items)) data.items = [];
+  const idx = data.items.findIndex(it => it.type === 'text' && it.content === s);
+  if (idx >= 0) {
+    const [item] = data.items.splice(idx, 1);
+    item.time = Date.now();
+    data.items.unshift(item);
+  } else {
+    data.items.unshift({
+      id: Date.now() + Math.random(),
+      type: 'text',
+      content: s,
+      time: Date.now(),
+      pinned: false,
+    });
+  }
+  const pinned = data.items.filter(it => it.pinned);
+  const unpinned = data.items.filter(it => !it.pinned);
+  data.items = pinned.concat(unpinned.slice(0, 100));
+  writeClipHistory(data);
+}
+
+function pushClipImage(input) {
+  let png;
+  if (Buffer.isBuffer(input)) {
+    png = input;
+  } else if (input && typeof input.isEmpty === 'function' && !input.isEmpty()) {
+    png = input.toPNG();
+  } else {
+    return;
+  }
+  if (!png || png.length === 0) return;
+  if (png.length > 5 * 1024 * 1024) return;
+  const filename = Date.now() + '_' + Math.random().toString(36).slice(2, 8) + '.png';
+  const dest = path.join(clipboardImagesDir(), filename);
+  try { fs.writeFileSync(dest, png); } catch (e) { return; }
+  const data = readClipHistory();
+  if (!Array.isArray(data.items)) data.items = [];
+  data.items.unshift({
+    id: Date.now() + Math.random(),
+    type: 'image',
+    imageFile: filename,
+    time: Date.now(),
+    pinned: false,
+  });
+  const pinned = data.items.filter(it => it.pinned);
+  const unpinned = data.items.filter(it => !it.pinned);
+  data.items = pinned.concat(unpinned.slice(0, 120));
+  writeClipHistory(data);
+}
 
 function loadConfig() {
   try { return JSON.parse(fs.readFileSync(configPath(), 'utf8')); }
@@ -305,6 +378,18 @@ function toggleTTS() {
   const cur = cfg().ttsEnabled !== false;
   saveConfig(Object.assign({}, cfg(), { ttsEnabled: !cur }));
   if (win && !win.isDestroyed()) win.webContents.send('tts:enabled-changed', !cur);
+  if (tray) tray.setContextMenu(buildMenu());
+}
+function toggleWallBounce() {
+  const cur = cfg().wallBounce !== false;
+  saveConfig(Object.assign({}, cfg(), { wallBounce: !cur }));
+  if (win && !win.isDestroyed()) win.webContents.send('wall-bounce-changed', !cur);
+  if (tray) tray.setContextMenu(buildMenu());
+}
+function toggleMaidReminders() {
+  const cur = cfg().maidRemindersEnabled !== false;
+  saveConfig(Object.assign({}, cfg(), { maidRemindersEnabled: !cur }));
+  if (win && !win.isDestroyed()) win.webContents.send('maid-reminders-changed', !cur);
   if (tray) tray.setContextMenu(buildMenu());
 }
 
@@ -517,7 +602,7 @@ function openChat() {
   }
   chatWin = new BrowserWindow({
     width: CHW, height: CHH, x, y,
-    frame: false, resizable: true, alwaysOnTop: true, skipTaskbar: false,
+    frame: false, resizable: true, alwaysOnTop: false, skipTaskbar: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -647,6 +732,33 @@ function openNotebook() {
   notebookWin.on('closed', () => { notebookWin = null; });
 }
 
+function openClipboardHistory() {
+  if (clipWin && !clipWin.isDestroyed()) { clipWin.show(); clipWin.focus(); return; }
+  const CW = 480, CH = 560;
+  let x, y;
+  if (win) {
+    const b = win.getBounds();
+    const wa = screen.getPrimaryDisplay().workArea;
+    x = b.x - CW - 12;
+    if (x < wa.x) x = b.x + b.width + 12;
+    y = b.y + b.height - CH;
+    x = Math.max(wa.x, Math.min(x, wa.x + wa.width - CW));
+    y = Math.max(wa.y, Math.min(y, wa.y + wa.height - CH));
+  }
+  clipWin = new BrowserWindow({
+    width: CW, height: CH, x, y,
+    frame: false, resizable: true, alwaysOnTop: false, skipTaskbar: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  clipWin.loadFile('clipboard.html');
+  clipWin.on('blur', () => { if (clipWin && !clipWin.isDestroyed()) clipWin.hide(); });
+  clipWin.on('closed', () => { clipWin = null; });
+}
+
 function openTranslate() {
   if (translateWin && !translateWin.isDestroyed()) { translateWin.show(); translateWin.focus(); return; }
   const TW = 360, TH = 460;
@@ -662,7 +774,7 @@ function openTranslate() {
   }
   translateWin = new BrowserWindow({
     width: TW, height: TH, x, y,
-    frame: false, resizable: true, alwaysOnTop: true, skipTaskbar: false,
+    frame: false, resizable: true, alwaysOnTop: false, skipTaskbar: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -671,6 +783,12 @@ function openTranslate() {
   });
   translateWin.loadFile('translate.html');
   translateWin.on('closed', () => { translateWin = null; });
+}
+
+const ROLE_WINDOWS = () => ({ qa: qaWin, chat: chatWin, translate: translateWin, clipboard: clipWin });
+function getWinByKey(key) {
+  const w = ROLE_WINDOWS()[key];
+  return (w && !w.isDestroyed()) ? w : null;
 }
 
 function openQuickAssist(mode, text) {
@@ -697,7 +815,10 @@ function openQuickAssist(mode, text) {
     },
   });
   qaWin.loadFile('quickassist.html');
-  qaWin.on('closed', () => { qaWin = null; });
+    qaWin.on('closed', () => {
+    console.log('[qa] 窗口关闭，调用栈：', new Error().stack);
+    qaWin = null;
+  });
 }
 
 // 向当前前台窗口发送 Ctrl+C,自动抓取选中的文字(免手动复制)
@@ -714,8 +835,19 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 // 全局划词:抓取选中文字 → 智能处理
 async function quickAssist(mode, autoCopy) {
   if (autoCopy) {
+    // 先隐藏划词助手，让 Ctrl+C 发给真正的目标窗口
+    if (qaWin && !qaWin.isDestroyed() && qaWin.isVisible()) {
+      qaWin.hide();
+      await delay(120);
+    }
+    const before = clipboard.readText();
     await simulateCopy();
-    await delay(180); // 等剪贴板更新
+    // 轮询等待剪贴板变化，最多 800ms
+    for (let i = 0; i < 40; i++) {
+      await delay(20);
+      const cur = clipboard.readText();
+      if (cur !== before && cur.trim()) break;
+    }
   }
   const text = clipboard.readText().trim();
   if (!text) {
@@ -781,13 +913,30 @@ function startClipboardWatcher() {
   if (clipboardWatcher) return;
   clipboardWatcher = setInterval(() => {
     try {
+      // ===== 图片检测（独立，MD5 去重）=====
+      const imgBuf = clipboard.readBuffer('image/png');
+      if (imgBuf && imgBuf.length > 0) {
+        const hash = crypto.createHash('md5').update(imgBuf).digest('hex');
+        if (hash !== lastClipboardImageHash) {
+          lastClipboardImageHash = hash;
+          pushClipImage(imgBuf);
+        }
+        return;
+      }
+
+      // ===== 文本检测 =====
       const cur = clipboard.readText();
       if (cur === lastClipboardText) return;
       lastClipboardText = cur;
       const s = String(cur || '').trim();
-      if (!s || s.length < 6 || s.length > 200) return;
+      if (!s) return;
 
-      // ===== 敏感信息检测（优先级高于密码） =====
+      // ===== 先无条件采集到历史（这才是剪贴板历史该干的）=====
+      pushClipText(s);
+
+      // ===== 再走敏感信息检测（只负责弹窗提示，不影响采集）=====
+      if (s.length < 6 || s.length > 200) return;
+
       let sensitive = null;
       if (/^\d{17}[\dXx]$/.test(s)) sensitive = { type: '身份证号', level: 'high', advice: '请勿轻易发给他人，谨慎上传证件照。' };
       else if (/^\d{16,19}$/.test(s)) sensitive = { type: '银行卡号', level: 'high', advice: '注意核对收款方，谨防诈骗转账。' };
@@ -800,7 +949,7 @@ function startClipboardWatcher() {
         return;
       }
 
-      // ===== 密码特征（保持原有逻辑） =====
+      // ===== 密码特征（保持原有行为）=====
       if (s.length < 6 || s.length > 64) return;
       if (/\s/.test(s)) return;
       if (!/[a-zA-Z]/.test(s) || !/[0-9]/.test(s)) return;
@@ -842,14 +991,21 @@ function startExtServer() {
   extServer.listen(27888, '127.0.0.1', () => console.log('[ext] 浏览器扩展通道已开启：127.0.0.1:27888'));
 }
 
+function broadcastRole(key) {
+  [chatWin, translateWin, qaWin, clipWin].forEach(w => {
+    if (w && !w.isDestroyed()) w.webContents.send('role-key', key);
+  });
+}
+
 function switchRole(key) {
-  console.log('[切角色]', key, '\n来源:', new Error().stack);   // ← 加这行
+  
   if (autoSwitchTimer && !roleBeforeAutoSwitch) { clearTimeout(autoSwitchTimer); autoSwitchTimer = null; }
   if (!ROLES[key]) return;
   saveConfig(Object.assign({}, cfg(), { role: key }));
   const r = ROLES[key];
   send('role-filter', r.filter);
   send('role-key', key);
+  broadcastRole(key);
   if (chatWin && !chatWin.isDestroyed()) {
     chatWin.webContents.send('role-info', { key, name: r.name, avatar: r.avatar });
   }
@@ -879,6 +1035,12 @@ function switchRoleTemporary(key, durationMs) {
   }, durationMs);
 }
 
+function cycleRole() {
+  const order = ['captain', 'maid', 'guard'];
+  const i = order.indexOf(currentRoleKey());
+  switchRole(order[(i + 1) % order.length]);
+}
+
 function buildMenu() {
   const sizeOptions = [0.4, 0.6, 0.8, 1, 1.25].map((k) => ({
     label: Math.round(k * 100) + '%',
@@ -901,6 +1063,7 @@ function buildMenu() {
     { label: '对话 💬  Ctrl+Shift+C', click: () => openChat() },
     { label: '划词助手 ✨  Shift+Alt+A', click: () => quickAssist('auto') },
     { label: '翻译 🌐  Ctrl+Shift+T', click: () => openTranslate() },
+    { label: '剪贴板历史 📋  Ctrl+Shift+V', click: () => openClipboardHistory() },
     { label: '碎碎念', click: () => send('whisper') },
     { label: '查看余额 💰', click: () => send('balance') },
     { type: 'separator' },
@@ -915,6 +1078,8 @@ function buildMenu() {
     ] },
     { type: 'separator' },
     { label: '语音播报', type: 'checkbox', checked: cfg().ttsEnabled !== false, click: () => toggleTTS() },
+    { label: '女仆提醒', type: 'checkbox', checked: cfg().maidRemindersEnabled !== false, click: () => toggleMaidReminders() },
+    { label: '撞墙反弹', type: 'checkbox', checked: cfg().wallBounce !== false, click: () => toggleWallBounce() },
     { label: '穿透点击(让鼠标点到桌面) Ctrl+Shift+G', type: 'checkbox', checked: clickThrough, click: () => toggleClickThrough() },
     { label: '大小', submenu: sizeOptions },
     { type: 'separator' },
@@ -1000,8 +1165,27 @@ ipcMain.handle('get-balance', async () => {
     return { ok: false, reason: 'fetch-error', message: '查余额失败: ' + ((err && err.message) || err) };
   }
 });
-
+ipcMain.on('set-mouse-passthrough', (e, pass) => {
+  if (win && !win.isDestroyed()) {
+    win.setIgnoreMouseEvents(!!pass, { forward: true });
+  }
+});
 ipcMain.handle('system:status', async () => await getSystemStatus());
+ipcMain.handle('get-current-role', () => currentRoleKey());
+
+ipcMain.on('pet:quick-action', (e, action) => {
+  switch (action) {
+    case 'chat': openChat(); break;
+    case 'clipboard': openClipboardHistory(); break;
+    case 'assist': quickAssist('auto', true); break;
+    case 'translate': openTranslate(); break;
+    case 'notebook': openNotebook(); break;
+    case 'vault': openVault(); break;
+    case 'console': openGuard(); break;
+    case 'exercise': openExerciseWindow(); break;
+    case 'role': cycleRole(); break;
+  }
+});
 
 ipcMain.handle('tts:play-by-text', async (e, text) => {
   const t = String(text || '').trim();
@@ -1027,6 +1211,83 @@ ipcMain.handle('tts:play-by-text', async (e, text) => {
 });
 
 ipcMain.handle('tts:get-enabled', () => cfg().ttsEnabled !== false);
+ipcMain.handle('maid-reminders-enabled', () => cfg().maidRemindersEnabled !== false);
+ipcMain.handle('wall-bounce-enabled', () => cfg().wallBounce !== false);
+
+ipcMain.handle('clipboard-history:list', () => readClipHistory());
+ipcMain.handle('clipboard-history:paste', (e, id) => {
+  const data = readClipHistory();
+  const item = (data.items || []).find(it => String(it.id) === String(id));
+  if (!item) return { ok: false };
+  if (item.type === 'text') {
+    clipboard.writeText(item.content);
+  } else if (item.type === 'image') {
+    const p = path.join(clipboardImagesDir(), item.imageFile);
+    if (fs.existsSync(p)) {
+      const img = nativeImage.createFromPath(p);
+      clipboard.writeImage(img);
+    }
+  }
+  if (clipWin && !clipWin.isDestroyed()) clipWin.hide();
+  return { ok: true };
+});
+ipcMain.handle('clipboard-history:copy-only', (e, id) => {
+  const data = readClipHistory();
+  const item = (data.items || []).find(it => String(it.id) === String(id));
+  if (!item) return { ok: false };
+  if (item.type === 'text') {
+    clipboard.writeText(item.content);
+  } else if (item.type === 'image') {
+    const p = path.join(clipboardImagesDir(), item.imageFile);
+    if (fs.existsSync(p)) {
+      const img = nativeImage.createFromPath(p);
+      clipboard.writeImage(img);
+    }
+  }
+  return { ok: true };
+});
+ipcMain.handle('clipboard-history:delete', (e, id) => {
+  const data = readClipHistory();
+  if (!Array.isArray(data.items)) data.items = [];
+  const idx = data.items.findIndex(it => String(it.id) === String(id));
+  if (idx >= 0) {
+    const item = data.items[idx];
+    if (item.type === 'image' && item.imageFile) {
+      try { fs.unlinkSync(path.join(clipboardImagesDir(), item.imageFile)); } catch (e) {}
+    }
+    data.items.splice(idx, 1);
+    writeClipHistory(data);
+  }
+  return { ok: true };
+});
+ipcMain.handle('clipboard-history:toggle-pin', (e, id) => {
+  const data = readClipHistory();
+  if (!Array.isArray(data.items)) data.items = [];
+  const item = data.items.find(it => String(it.id) === String(id));
+  if (item) { item.pinned = !item.pinned; writeClipHistory(data); }
+  return { ok: true, pinned: item ? item.pinned : false };
+});
+ipcMain.handle('clipboard-history:clear-all', () => {
+  const data = readClipHistory();
+  const pinned = (data.items || []).filter(it => it.pinned);
+  (data.items || []).forEach(it => {
+    if (!it.pinned && it.type === 'image' && it.imageFile) {
+      try { fs.unlinkSync(path.join(clipboardImagesDir(), it.imageFile)); } catch (e) {}
+    }
+  });
+  writeClipHistory({ items: pinned });
+  return { ok: true };
+});
+ipcMain.handle('clipboard-history:read-image', (e, filename) => {
+  try {
+    const safe = path.basename(String(filename || ''));
+    const full = path.join(clipboardImagesDir(), safe);
+    if (!fs.existsSync(full)) return { ok: false };
+    const buf = fs.readFileSync(full);
+    return { ok: true, dataUrl: 'data:image/png;base64,' + buf.toString('base64') };
+  } catch (e) { return { ok: false }; }
+});
+ipcMain.on('clipboard-history:close', () => { if (clipWin) clipWin.close(); });
 
 ipcMain.handle('whisper', async () => {
   try {
@@ -1443,7 +1704,27 @@ ipcMain.handle('translate:send', async (e, text, target) => {
 ipcMain.on('translate:close', () => { if (translateWin) translateWin.close(); });
 ipcMain.handle('clipboard:read', () => clipboard.readText());
 ipcMain.handle('clipboard:write', (e, t) => { clipboard.writeText(String(t)); return true; });
+ipcMain.handle('qa:get-always-on-top', () => {
+  return qaWin && !qaWin.isDestroyed() ? qaWin.isAlwaysOnTop() : false;
+});
 
+ipcMain.handle('qa:set-always-on-top', (e, on) => {
+  if (qaWin && !qaWin.isDestroyed()) {
+    qaWin.setAlwaysOnTop(!!on, 'screen-saver');
+  }
+  return { ok: true };
+});
+
+ipcMain.handle('window:get-always-on-top', (e, key) => {
+  const w = getWinByKey(key);
+  return w ? w.isAlwaysOnTop() : false;
+});
+
+ipcMain.handle('window:set-always-on-top', (e, key, on) => {
+  const w = getWinByKey(key);
+  if (w) w.setAlwaysOnTop(!!on, 'screen-saver');
+  return { ok: true };
+});
 ipcMain.handle('qa:init', () => pendingQA || { mode: 'auto', text: '' });
 ipcMain.handle('qa:run', async (e, payload) => {
   const t = String((payload && payload.text) || '').trim();
@@ -1473,6 +1754,77 @@ ipcMain.handle('qa:run', async (e, payload) => {
     return { ok: false, message: msg };
   }
 });
+
+function runLocalTool(tool, text) {
+  switch (tool) {
+    case 'json': {
+      const obj = JSON.parse(text);
+      return JSON.stringify(obj, null, 2);
+    }
+    case 'b64-encode':
+      return Buffer.from(text, 'utf8').toString('base64');
+    case 'b64-decode':
+      return Buffer.from(text.trim(), 'base64').toString('utf8');
+    case 'url-encode':
+      return encodeURIComponent(text);
+    case 'url-decode':
+      return decodeURIComponent(text);
+    case 'ts-to-date': {
+      const n = Number(text.trim());
+      if (!isFinite(n)) throw new Error('不是有效的时间戳数字');
+      const ms = String(text.trim()).length <= 10 ? n * 1000 : n;
+      const d = new Date(ms);
+      if (isNaN(d.getTime())) throw new Error('时间戳超出范围');
+      const pad = (x) => String(x).padStart(2, '0');
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+        + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    }
+    case 'date-to-ts': {
+      const d = new Date(text.trim().replace(/\//g, '-'));
+      if (isNaN(d.getTime())) throw new Error('无法识别的日期格式，试试 2024-01-01 12:00:00');
+      return '秒：' + Math.floor(d.getTime() / 1000)
+        + '\n毫秒：' + d.getTime()
+        + '\nISO：' + d.toISOString();
+    }
+    case 'naming': {
+      const words = text
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .replace(/[-_\s]+/g, ' ')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(w => w.toLowerCase());
+      if (!words.length) throw new Error('没有有效单词');
+      const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
+      return 'camelCase:    ' + (words[0] + words.slice(1).map(cap).join(''))
+        + '\nPascalCase:   ' + words.map(cap).join('')
+        + '\nsnake_case:   ' + words.join('_')
+        + '\nkebab-case:   ' + words.join('-')
+        + '\nCONSTANT:     ' + words.join('_').toUpperCase();
+    }
+    case 'hash': {
+      const crypto = require('crypto');
+      const md5 = crypto.createHash('md5').update(text, 'utf8').digest('hex');
+      const sha1 = crypto.createHash('sha1').update(text, 'utf8').digest('hex');
+      const sha256 = crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+      return 'MD5:     ' + md5 + '\nSHA-1:   ' + sha1 + '\nSHA-256: ' + sha256;
+    }
+    default:
+      throw new Error('未知工具：' + tool);
+  }
+}
+
+ipcMain.handle('qa:tool', (e, payload) => {
+  const text = String((payload && payload.text) || '');
+  const tool = String((payload && payload.tool) || '');
+  if (!text) return { ok: false, message: '没有内容' };
+  try {
+    return { ok: true, text: runLocalTool(tool, text) };
+  } catch (err) {
+    return { ok: false, message: (err && err.message) || String(err) };
+  }
+});
+
 ipcMain.on('qa:close', () => { if (qaWin) qaWin.close(); });
 
 ipcMain.on('splash:close', () => {

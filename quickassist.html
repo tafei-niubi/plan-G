@@ -5,22 +5,38 @@
   <title>G计划 · 划词助手</title>
   <link rel="stylesheet" href="quickassist.css" />
 </head>
-<body>
+<body data-role="captain">
   <div id="card">
     <div id="header">
       <span id="mode-label">✨ 智能</span>
       <div class="actions">
         <button id="copy" title="复制结果">复制</button>
+        <button id="pin" title="置顶">始终置顶</button>
         <button id="close" title="关闭">×</button>
       </div>
     </div>
 
-    <div id="chips">
+    <div id="tabs">
+      <button class="tab active" data-tab="ai">✨ AI</button>
+      <button class="tab" data-tab="tools">🔧 工具</button>
+    </div>
+    <div id="chips" class="tab-panel active" data-panel="ai">
       <button class="chip active" data-mode="auto">智能</button>
       <button class="chip" data-mode="translate">翻译</button>
       <button class="chip" data-mode="explain">解释</button>
       <button class="chip" data-mode="summary">总结</button>
       <button class="chip" data-mode="polish">润色</button>
+    </div>
+    <div id="tools" class="tab-panel" data-panel="tools">
+      <button class="tool-btn" data-tool="json">JSON 格式化</button>
+      <button class="tool-btn" data-tool="b64-encode">Base64 编码</button>
+      <button class="tool-btn" data-tool="b64-decode">Base64 解码</button>
+      <button class="tool-btn" data-tool="url-encode">URL 编码</button>
+      <button class="tool-btn" data-tool="url-decode">URL 解码</button>
+      <button class="tool-btn" data-tool="ts-to-date">时间戳 → 日期</button>
+      <button class="tool-btn" data-tool="date-to-ts">日期 → 时间戳</button>
+      <button class="tool-btn" data-tool="naming">命名转换</button>
+      <button class="tool-btn" data-tool="hash">Hash</button>
     </div>
 
     <div id="result" class="placeholder">正在思考…</div>
