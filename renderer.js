@@ -10,6 +10,16 @@ let maidRemindersEnabled = true;
 let wallBounceEnabled = true;
 let cachedStatus = { battery: 'ok', cpu: 'ok', mem: 'ok', net: 'ok' };
 let busyUntil = 0;
+let voiceRecording = false;
+let lastAsrText = '';
+let voiceAudioCtx = null;
+let voiceMediaStream = null;
+let voiceProcessor = null;
+let voiceFrameBuffer = [];
+let voiceFrameSamples = 0;
+let voicePartialText = '';
+  lastAsrText = '';
+let iatStillOpen = false;
 
 
 const STATUS_DIALOGUES = {
@@ -585,6 +595,8 @@ let velX = 0, velY = 0, lastX = 0, lastY = 0, lastT = 0;
 let wheelPressed = false; // 自己记录中键(滚轮键)按下状态,避免依赖 wheel.buttons 的误报
 
 stage.addEventListener('mousedown', async (e) => {
+  // 录音期间，人物/背景点击一律忽略（只允许点麦克风按钮，它有 stopPropagation）
+  if (voiceRecording) return;
   if (e.button === 1) { wheelPressed = true; e.preventDefault(); return; }
   if (e.button === 2) return;
 
@@ -679,7 +691,7 @@ const QUICK_ACTIONS = [
   // ===== 左列 =====
   { id: 'chat',      icon: '▤', label: '对话',     en: 'CHAT',    x: -0.28, y: -0.44 },
   { id: 'clipboard', icon: '▣', label: '剪贴板',   en: 'CLIP',    x: -0.40, y: -0.22 },
-  { id: 'help',      icon: '?', label: '帮助',     en: 'HELP',    x: -0.38, y: +0.22 },
+  { id: 'voice',     icon: '♪', label: '语音',     en: 'VOICE',   x: -0.38, y: +0.22 },
   { id: 'settings',  icon: '⚙', label: '设置',     en: 'SET',     x: -0.26, y: +0.40 },
 
   // ===== 右列 =====
@@ -770,8 +782,12 @@ function runQuickAction(id) {
     doBalance();
     return;
   }
-    if (id === 'settings' || id === 'help') {
+  if (id === 'settings') {
     bubble('待开发', 2000);
+    return;
+  }
+  if (id === 'voice') {
+    toggleVoiceRecording();
     return;
   }
   if (id === 'diary') {
@@ -859,6 +875,7 @@ function isNearPetCenter(cx, cy) {
 }
 
 function onTap(cx, cy) {
+  if (voiceRecording) return;
   clearTimeout(tapTimer);
   tapTimer = setTimeout(() => {
     tapTimer = null;
@@ -1068,6 +1085,165 @@ if (window.petAPI && window.petAPI.onDiarySpeak) {
     speakAndPlayWithRole(d.text, d.role || 'captain');
   });
 }
+
+// ---- 语音输入（讯飞 ASR） ----
+function toggleVoiceRecording() {
+  if (voiceRecording) {
+    stopVoiceRecording();
+  } else {
+    startVoiceRecording();
+  }
+}
+
+async function startVoiceRecording() {
+  console.log('[Voice] 启动录音...');
+  try {
+    voiceMediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        sampleRate: 16000,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      }
+    });
+  } catch (err) {
+    console.error('[Voice] getUserMedia 失败:', err);
+    let msg = '麦克风不可用';
+    if (err.name === 'NotAllowedError') msg = '麦克风权限被拒，请在系统设置里允许';
+    else if (err.name === 'NotFoundError') msg = '没找到麦克风设备';
+    bubble(msg, 4000);
+    return;
+  }
+
+  voiceAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+  const actualRate = voiceAudioCtx.sampleRate;
+  console.log('[Voice] AudioContext 采样率:', actualRate, '(期望 16000)');
+  const source = voiceAudioCtx.createMediaStreamSource(voiceMediaStream);
+  voiceProcessor = voiceAudioCtx.createScriptProcessor(4096, 1, 1);
+
+  voiceFrameBuffer = [];
+  voiceFrameSamples = 0;
+  voicePartialText = '';
+
+  const res = await api.asrStart();
+  if (!res || !res.ok) {
+    bubble('ASR 启动失败', 3000);
+    cleanupVoice();
+    return;
+  }
+
+  voiceProcessor.onaudioprocess = (evt) => {
+    const input = evt.inputBuffer.getChannelData(0);
+    let samples;
+    if (actualRate === 16000) {
+      samples = input;
+    } else {
+      // 简单的线性插值重采样到 16kHz
+      const ratio = actualRate / 16000;
+      const outLen = Math.floor(input.length / ratio);
+      samples = new Float32Array(outLen);
+      for (let i = 0; i < outLen; i++) {
+        const srcIdx = i * ratio;
+        const i0 = Math.floor(srcIdx);
+        const i1 = Math.min(i0 + 1, input.length - 1);
+        const frac = srcIdx - i0;
+        samples[i] = input[i0] * (1 - frac) + input[i1] * frac;
+      }
+    }
+
+    const pcm = new Int16Array(samples.length);
+    for (let i = 0; i < samples.length; i++) {
+      let s = Math.max(-1, Math.min(1, samples[i]));
+      pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    for (let i = 0; i < pcm.length; i++) {
+      voiceFrameBuffer.push(pcm[i]);
+    }
+    while (voiceFrameBuffer.length >= 640) {
+      const frame = voiceFrameBuffer.splice(0, 640);
+      const buf = new Int16Array(frame);
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf.buffer)));
+      api.asrSendAudio(b64, false);
+    }
+  };
+
+  source.connect(voiceProcessor);
+  voiceProcessor.connect(voiceAudioCtx.destination);
+
+  voiceRecording = true;
+  iatStillOpen = true;
+
+  document.getElementById('rec-badge').classList.add('show');
+}
+
+function stopVoiceRecording() {
+  if (!voiceRecording) return;
+  voiceRecording = false;
+
+  // 发送最后一帧（如果有剩余）
+  if (voiceFrameBuffer.length > 0) {
+    const buf = new Int16Array(voiceFrameBuffer);
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf.buffer)));
+    api.asrSendAudio(b64, true);
+  } else {
+    // 空帧，标记结束
+    api.asrSendAudio('', true);
+  }
+
+  // 关闭音频采集
+  try { voiceProcessor.disconnect(); } catch(e){}
+  try { voiceMediaStream.getTracks().forEach(t => t.stop()); } catch(e){}
+  try { voiceAudioCtx.close(); } catch(e){}
+
+  // 不主动关 WebSocket，靠服务端收到 status=2 后返回最终结果，
+  // 由 onAsrEnd 回调触发清理
+  setTimeout(() => {
+    if (voiceRecording || iatStillOpen) {
+      api.asrStop();
+      cleanupVoice();
+    }
+  }, 5000);
+}
+
+function cleanupVoice() {
+  voiceRecording = false;
+  const badge = document.getElementById('rec-badge');
+  if (badge) badge.classList.remove('show');
+  const vp = document.getElementById('voice-partial');
+  if (vp) { vp.classList.remove('show'); vp.textContent = ''; }
+  try { voiceProcessor && voiceProcessor.disconnect(); } catch(e){}
+  try { voiceMediaStream && voiceMediaStream.getTracks().forEach(t => t.stop()); } catch(e){}
+  try { voiceAudioCtx && voiceAudioCtx.close(); } catch(e){}
+}
+
+
+api.onAsrResult((d) => {
+  if (!d || !d.text) return;
+  if (d.text === voicePartialText) return;
+  voicePartialText = d.text;
+  const el = document.getElementById('voice-partial');
+  if (!el) return;
+  el.textContent = voicePartialText;
+  if (!el.classList.contains('show')) el.classList.add('show');
+});
+
+api.onAsrEnd(() => {
+  iatStillOpen = false;
+  cleanupVoice();
+  const text = (voicePartialText || '').trim();
+  if (text) {
+    api.voiceSend(text);
+  } else {
+    bubble('没听清', 1500);
+  }
+});
+
+api.onAsrError((d) => {
+  iatStillOpen = false;
+  bubble('识别失败：' + (d.message || ''), 3000);
+  cleanupVoice();
+});
 // ===== 鼠标穿透：只在人物或已打开的快捷盘盒子上才拦截 =====
 let lastPassthrough = null;
 

@@ -38,6 +38,13 @@ contextBridge.exposeInMainWorld('petAPI', {
   synthRealtime: (text, role) => ipcRenderer.invoke('tts:synth-realtime', text, role),
   clearLiveCache: () => ipcRenderer.invoke('tts:clear-live-cache'),
   onDiarySpeak: (cb) => ipcRenderer.on('diary:speak', (e, d) => cb(d)),
+  asrStart: () => ipcRenderer.invoke('asr:start'),
+  asrSendAudio: (base64, isLast) => ipcRenderer.send('asr:audio', base64, isLast),
+  asrStop: () => ipcRenderer.send('asr:stop'),
+  onAsrResult: (cb) => ipcRenderer.on('asr:result', (e, d) => cb(d)),
+  onAsrError: (cb) => ipcRenderer.on('asr:error', (e, d) => cb(d)),
+  onAsrEnd: (cb) => ipcRenderer.on('asr:end', (e) => cb()),
+  voiceSend: (text) => ipcRenderer.send('voice:send', text),
 });
 
 contextBridge.exposeInMainWorld('translateAPI', {
@@ -70,6 +77,7 @@ contextBridge.exposeInMainWorld('chatAPI', {
   onDone: (cb) => ipcRenderer.on('chat:done', (e, d) => cb(d)),
   onError: (cb) => ipcRenderer.on('chat:error', (e, d) => cb(d)),
   onRoleInfo: (cb) => ipcRenderer.on('role-info', (e, d) => cb(d)),
+  onVoiceInject: (cb) => ipcRenderer.on('voice:inject', (e, text) => cb(text)),
 });
 
 contextBridge.exposeInMainWorld('vaultAPI', {

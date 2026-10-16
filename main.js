@@ -1,6 +1,7 @@
 // G计划 —— 主进程
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen, globalShortcut, nativeImage, clipboard, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, globalShortcut, nativeImage, clipboard, dialog, session } = require('electron');
 const { exec, execFile } = require('child_process');
+let latestSysStatus = {};
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -12,6 +13,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const dns = require('dns').promises;
 const AnthropicClient = Anthropic.default || Anthropic;
 const xfyunTts = require('./xfyun-tts');
+const { XfyunIatSession } = require('./xfyun-iat');
 // ===== 单实例锁：防止多个进程同时抢角色/配置 =====
 // ===== 单实例锁：防止多个进程同时抢角色/配置 =====
 const gotTheLock = app.requestSingleInstanceLock();
@@ -27,6 +29,12 @@ if (!gotTheLock) {
       win.show();
       win.focus();
     }
+  });
+  app.on('ready', () => {
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      if (permission === 'media') return callback(true);  // 允许麦克风
+      callback(false);
+    });
   });
   app.whenReady().then(async () => {
   await openSplash();
@@ -75,6 +83,9 @@ if (!gotTheLock) {
     statusChecking = true;
     try {
       const status = await getSystemStatus();
+      if (status && Object.keys(status).length > 0) {
+        latestSysStatus = status;
+      }
       const statusKey = JSON.stringify(status);
       if (statusKey !== lastSystemStatus) {
         lastSystemStatus = statusKey;
@@ -795,16 +806,29 @@ async function getSystemStatus() {
       si.currentLoad().catch(() => null),
       si.mem().catch(() => null),
     ]);
-    if (battery && battery.hasBattery) {
+        if (battery && battery.hasBattery && typeof battery.percent === 'number') {
+      status.hasBattery = true;
+      status.batteryPercent = battery.percent;
+      status.batteryCharging = !!battery.isCharging;
       if (!battery.isCharging && battery.percent < 20) status.battery = 'low';
       else if (battery.isCharging && battery.percent >= 95) status.battery = 'full';
       else if (battery.isCharging) status.battery = 'charging';
       else status.battery = 'ok';
+    } else {
+      status.hasBattery = false;
     }
-    if (cpu && cpu.currentLoad > 80) status.cpu = 'high';
-    if (mem && mem.active / mem.total > 0.85) status.mem = 'high';
-    // 网络：改为 30 秒缓存一次（不在每次 getSystemStatus 时都调 networkInterfaces）
-    // 网络：DNS 探测 + 10 秒缓存
+    if (cpu && typeof cpu.currentLoad === 'number') {
+      status.cpuPercent = Math.round(cpu.currentLoad);
+      if (cpu.currentLoad > 80) status.cpu = 'high';
+    }
+    if (mem && typeof mem.total === 'number' && mem.total > 0) {
+      const usedBytes = mem.active || mem.used;
+      if (typeof usedBytes === 'number') {
+        status.memUsedGB = Math.round(usedBytes / 1024 / 1024 / 1024 * 10) / 10;
+        status.memTotalGB = Math.round(mem.total / 1024 / 1024 / 1024 * 10) / 10;
+        if (usedBytes / mem.total > 0.85) status.mem = 'high';
+      }
+    }
 const now = Date.now();
 if (now - statusCacheForNet.netCheckedAt > 3000) {
   try {
@@ -823,8 +847,8 @@ if (prevNet !== curNet) {
   console.log('[网络]', curNet ? '在线' : '离线');
   statusCacheForNet.lastLoggedNet = curNet;
 }
-
-return status;
+    console.log('[状态] getSystemStatus 返回:', JSON.stringify(status));
+    return status;
   } catch (e) {
     console.error('[状态] 获取系统状态失败:', e.message);
     return {};
@@ -1902,6 +1926,78 @@ async function synthesizeRealtime(text, role) {
   return buf;
 }
 
+let iatSession = null;
+let iatAudioBuffer = [];
+
+ipcMain.handle('asr:start', () => {
+  if (iatSession) { try { iatSession.close(); } catch(e){} }
+  iatAudioBuffer = [];
+  const credPath = path.join(__dirname, 'xfyun-credentials.json');
+  iatSession = new XfyunIatSession(
+    credPath,
+    (text, isFinal) => {
+      console.log('[ASR] 识别中:', text, 'final=' + isFinal);
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('asr:result', { text, isFinal });
+      }
+    },
+    (err) => {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('asr:error', { message: err.message || String(err) });
+      }
+      iatSession = null;
+    },
+    () => {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('asr:end', {});
+      }
+      iatSession = null;
+    }
+  );
+  iatSession.start();
+  return { ok: true };
+});
+
+ipcMain.on('asr:audio', (e, pcmBase64, isLast) => {
+  if (!iatSession) return;
+  try {
+    const buf = Buffer.from(pcmBase64, 'base64');
+    iatSession.sendAudio(buf, !!isLast);
+  } catch (err) {}
+});
+
+ipcMain.on('asr:stop', () => {
+  if (iatSession) {
+    try { iatSession.close(); } catch (e) {}
+    iatSession = null;
+  }
+});
+
+ipcMain.on('voice:send', (e, text) => {
+  const t = String(text || '').trim();
+  if (!t) return;
+
+  // 已开窗口 → 直接注入
+  if (chatWin && !chatWin.isDestroyed()) {
+    chatWin.webContents.send('voice:inject', t);
+    chatWin.show();
+    chatWin.focus();
+    return;
+  }
+
+  // 没开 → 打开新窗口，等加载完再注入
+  openChat();
+  if (chatWin) {
+    chatWin.webContents.once('did-finish-load', () => {
+      if (chatWin && !chatWin.isDestroyed()) {
+        chatWin.webContents.send('voice:inject', t);
+        chatWin.show();
+        chatWin.focus();
+      }
+    });
+  }
+});
+
 ipcMain.handle('tts:synth-realtime', async (e, text, role) => {
   try {
     const useRole = ['captain', 'maid', 'guard'].includes(role) ? role : currentRoleKey();
@@ -2032,6 +2128,43 @@ ipcMain.handle('chat:send', async (e, text) => {
   const mem = readMemory();
   const rounds = Number(cfg().chatMemoryRounds || 3);
   const history = mem.messages.slice(-(rounds * 2));
+  let systemExtra = '';
+  if (weatherCache && weatherCache.city && weatherCache.temp != null) {
+    systemExtra = '\n\n【当前环境】用户所在地：' + weatherCache.city
+      + '，天气：' + weatherCache.condition + '，' + weatherCache.temp + '℃。'
+      + '如果用户询问天气/定位相关问题，直接用这些数据回答，不要说"不知道定位"。';
+  }
+         // 系统状态（读缓存，不调 getSystemStatus 避免撞锁）
+  try {
+    const sys = latestSysStatus || {};
+    const sysParts = [];
+    if (sys.hasBattery === false) {
+      sysParts.push('设备类型：台式机（无电池）');
+    } else if (sys.hasBattery === true && typeof sys.batteryPercent === 'number') {
+      const battLabel = { low: '电量低', full: '已满', charging: '充电中', ok: '正常' };
+      sysParts.push('电池：' + (battLabel[sys.battery] || '正常')
+        + '（' + sys.batteryPercent + '%，'
+        + (sys.batteryCharging ? '充电中' : '未充电') + '）');
+    }
+    if (typeof sys.cpuPercent === 'number') {
+      sysParts.push('CPU：' + sys.cpuPercent + '%');
+    }
+    if (typeof sys.memUsedGB === 'number' && typeof sys.memTotalGB === 'number') {
+      sysParts.push('内存：' + sys.memUsedGB + 'GB / ' + sys.memTotalGB + 'GB');
+    }
+    if (sys.net === 'off') {
+      sysParts.push('网络：断开');
+    } else if (sys.net === 'ok') {
+      sysParts.push('网络：在线');
+    }
+    if (sysParts.length) {
+      systemExtra += '\n\n【当前系统状态】' + sysParts.join('；')
+        + '。用户问电脑状态/电量/CPU/内存/网络时，直接用这些数据回答。'
+        + '严禁说"接触不到硬件""读不到""没有权限"。';
+    }
+  } catch (e) {
+    console.error('[chat] 系统状态注入失败:', e.message);
+  }
   const messages = [
     ...history.map((m) => ({ role: m.role, content: m.content })),
     { role: 'user', content: String(text || '') },
@@ -2050,7 +2183,7 @@ ipcMain.handle('chat:send', async (e, text) => {
     const stream = client.messages.stream({
       model: 'deepseek-v4-flash',
       max_tokens: 1024,
-      system: currentRole().persona,
+      system: currentRole().persona + systemExtra,
       messages,
     });
     let full = '';

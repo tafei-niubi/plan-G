@@ -198,3 +198,10 @@ if (window.roleAPI) {
     pinBtn.classList.toggle('active', on);
   });
 })();
+
+if (window.chatAPI && window.chatAPI.onVoiceInject) {
+  window.chatAPI.onVoiceInject((text) => {
+    input.value = text;
+    send();
+  });
+}
