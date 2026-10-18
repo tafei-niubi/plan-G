@@ -61,6 +61,7 @@ function addMsg(role, text) {
 
 let currentAssistant = null;
 let assistantRaw = '';
+let inMusicTag = false;
 
 function setAssistant(text) {
   assistantRaw = text;
@@ -72,24 +73,55 @@ function setBusy(busy) {
   sendBtn.disabled = busy;
 }
 
-function send() {
+async function send() {
   const text = input.value.trim();
   if (!text || currentAssistant) return; // 回复进行中不重复发送
+
+  // 强行拦截曲库提问：直接弹清单，不发给 AI
+  const musicQKeywords = ['什么歌', '哪些歌', '歌单', '曲库'];
+  if (musicQKeywords.some(k => text.includes(k))) {
+    const res = await api.getMusicList();
+    if (res && res.ok) api.notifyMusicList(res.files);
+    input.value = '';
+    autoGrow();
+    return;
+  }
+
   addMsg('user', text);
   input.value = '';
   autoGrow();
   assistantRaw = '';
+  inMusicTag = false;
   currentAssistant = addMsg('assistant', '');
   setBusy(true);
-  api.send(text);
+  api.send(text, document.body.dataset.role);
 }
 
 api.onChunk((d) => {
-  if (currentAssistant) setAssistant(assistantRaw + d.text);
+  if (!currentAssistant) return;
+  let txt = d.text;
+  // 流式输出里 <PLAY_MUSIC> 可能被拆分，做状态机过滤，避免用户看到标签
+  if (inMusicTag) {
+    const end = txt.indexOf('</PLAY_MUSIC>');
+    if (end === -1) return;
+    txt = txt.slice(end + '</PLAY_MUSIC>'.length);
+    inMusicTag = false;
+  }
+  let out = '';
+  while (txt.length) {
+    const s = txt.indexOf('<PLAY_MUSIC>');
+    if (s === -1) { out += txt; break; }
+    out += txt.slice(0, s);
+    const rest = txt.slice(s + '<PLAY_MUSIC>'.length);
+    const e = rest.indexOf('</PLAY_MUSIC>');
+    if (e === -1) { inMusicTag = true; break; }
+    txt = rest.slice(e + '</PLAY_MUSIC>'.length);
+  }
+  if (out) setAssistant(assistantRaw + out);
 });
 api.onDone((d) => {
   if (currentAssistant) {
-    if (!assistantRaw.trim()) setAssistant(d.text || '(没有回复)');
+    setAssistant(d.text || '(没有回复)');
     currentAssistant = null;
     setBusy(false);
     scroll();
@@ -205,3 +237,5 @@ if (window.chatAPI && window.chatAPI.onVoiceInject) {
     send();
   });
 }
+
+window.ScrollWidget && window.ScrollWidget.attach(document.getElementById('messages'));

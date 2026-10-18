@@ -199,3 +199,5 @@ if (window.roleAPI) {
     pinBtn.classList.toggle('active', on);
   });
 })();
+
+window.ScrollWidget && window.ScrollWidget.attach(document.getElementById('list'));

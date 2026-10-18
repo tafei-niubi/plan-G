@@ -1,5 +1,5 @@
 // G计划 —— 主进程
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen, globalShortcut, nativeImage, clipboard, dialog, session } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, globalShortcut, nativeImage, clipboard, dialog, session, shell } = require('electron');
 const { exec, execFile } = require('child_process');
 let latestSysStatus = {};
 const path = require('path');
@@ -14,6 +14,25 @@ const dns = require('dns').promises;
 const AnthropicClient = Anthropic.default || Anthropic;
 const xfyunTts = require('./xfyun-tts');
 const { XfyunIatSession } = require('./xfyun-iat');
+const { initMusicModule } = require('./music');
+const { initDiaryModule } = require('./diary-core');
+const { initClipboardModule } = require('./clipboard-core');
+const desktopMusicDir = () => path.join(app.getPath('desktop'), 'G计划-音乐舱');
+
+// 日记/天气模块的函数引用（在 whenReady 里由 diary-core 注入赋值）
+let recordEvent = () => {};
+let appendDiaryEntry = () => Promise.resolve();
+let canTriggerDiary = () => false;
+let describeEventForDiary = () => '';
+let refreshWeather = async () => {};
+let triggerOpening = async () => {};
+let appendClosing = () => {};
+let tryClosingOnExit = () => {};
+let appendClosingDynamic = () => Promise.resolve();
+let startClipboardWatcher = () => {};
+
+// 解锁自动播放限制：让 new Audio() 无需用户手势也能直接出声
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 // ===== 单实例锁：防止多个进程同时抢角色/配置 =====
 // ===== 单实例锁：防止多个进程同时抢角色/配置 =====
 const gotTheLock = app.requestSingleInstanceLock();
@@ -39,6 +58,43 @@ if (!gotTheLock) {
   app.whenReady().then(async () => {
   await openSplash();
   createWindow();
+  initMusicModule();
+  const diary = initDiaryModule({
+    getWin: () => win,
+    cfg,
+    getClaude,
+    saveConfig,
+    currentRoleKey,
+    enqueueBackgroundAi,
+    safeCreate,
+    eventsPath,
+    diaryFileFor,
+    todayDateStr,
+    todayTimeStr,
+    getWeatherCache: () => weatherCache,
+    setWeatherCache: (w) => { weatherCache = w; },
+  });
+  recordEvent = diary.recordEvent;
+  appendDiaryEntry = diary.appendDiaryEntry;
+  canTriggerDiary = diary.canTriggerDiary;
+  describeEventForDiary = diary.describeEventForDiary;
+  refreshWeather = diary.refreshWeather;
+  triggerOpening = diary.triggerOpening;
+  appendClosing = diary.appendClosing;
+  tryClosingOnExit = diary.tryClosingOnExit;
+  appendClosingDynamic = diary.appendClosingDynamic;
+  const clip = initClipboardModule({
+    cfg,
+    snippetOf,
+    shouldSkipPassword,
+    openPwdConfirmWindow,
+    recordEvent,
+    canTriggerDiary,
+    appendDiaryEntry,
+    describeEventForDiary,
+    getClipWin: () => clipWin,
+  });
+  startClipboardWatcher = clip.startClipboardWatcher;
   // 首次启动询问定位权限
   if (cfg().locationConsent === undefined) {
     const result = await dialog.showMessageBox(win, {
@@ -63,12 +119,6 @@ if (!gotTheLock) {
   setTimeout(() => {
     refreshWeather().catch(e => console.log('[天气] 失败：', e.message));
   }, 3000);
-
-  // 每 8 小时刷新一次
-  if (weatherRefreshTimer) clearInterval(weatherRefreshTimer);
-  weatherRefreshTimer = setInterval(() => {
-    refreshWeather().catch(e => {});
-  }, 8 * 60 * 60 * 1000);
 
   recordEvent('app_start');
   triggerOpening().catch(()=>{});
@@ -103,7 +153,7 @@ if (!gotTheLock) {
             appendDiaryEntry('警戒', describeEventForDiary({ type: 'system_alert', kind: 'net_off' }), '网络断').catch(()=>{});
           }
         }
-        win.webContents.send('system:status-changed', status);
+        if (win && !win.isDestroyed()) win.webContents.send('system:status-changed', status);
       }
     } catch (e) {} finally {
       statusChecking = false;
@@ -122,20 +172,27 @@ if (!gotTheLock) {
   globalShortcut.register('Control+Shift+2', () => switchRole('maid'));
   globalShortcut.register('Control+Shift+3', () => switchRole('guard'));
 
-  // 深夜提醒：每 10 分钟检查一次
-  setInterval(() => {
-    const h = new Date().getHours();
-    if (h >= 22 && canTriggerDiary('深夜')) {
-      appendDiaryEntry('深夜', '用户深夜仍在电脑前工作').catch(()=>{});
-    }
-  }, 10 * 60 * 1000);
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+
+// 退出时先让 AI 生成时间感知的下线语（最多等 8 秒，超时/失败自动用固定兜底），再真正退出
+let closingGenerated = false;
+app.on('before-quit', (e) => {
+  if (closingGenerated) return;
+  e.preventDefault();
+  closingGenerated = true;
+  appendClosingDynamic().catch(() => {}).finally(() => {
+    // 给语音播放留够时间再退出
+    setTimeout(() => {
+      app.quit();
+    }, 4000);
+  });
+});
+
 app.on('will-quit', (e) => {
   globalShortcut.unregisterAll();
   recordEvent('app_quit');
-  appendClosing();
 });
 
 process.on('SIGINT', () => {
@@ -212,9 +269,6 @@ let subtitleWin = null;
 let subtitleTimer = null;
 let vaultWin = null;
 let vaultKey = null; // 存在内存中，绝不写盘
-let lastClipboardText = '';
-let lastClipboardImageHash = '';
-let clipboardWatcher = null;
 let extServer = null;
 let guardWin = null;
 let pwdConfirmWin = null;
@@ -230,37 +284,61 @@ let splashWin = null;
 let lastSystemStatus = null;
 let lastAlertRecorded = { battery_low: 0, net_off: 0 };
 let weatherCache = { city: '', temp: null, condition: '', lat: null, lon: null, updatedAt: 0 };
-let weatherRefreshTimer = null;
 let ttsManifest = null;
-let lastNotebookIds = new Set(); // 上次已记入事件的笔记条目 id，用于只记新增
 
-// ---- 日记实时追加的去抖控制（同一标签隔 15/30/60 分钟才触发一次） ----
-const lastDiaryTrigger = {
-  '长谈': 0,
-  '复制': 0,
-  '窗口': 0,
-  '警戒': 0,
-  '深夜': 0,
-  '查阅': 0,
-};
-
-const DEBOUNCE_MAP = {
-  '长谈': 15 * 60 * 1000,
-  '复制': 15 * 60 * 1000,
-  '窗口': 30 * 60 * 1000,
-  '警戒': 30 * 60 * 1000,
-  '深夜': 60 * 60 * 1000,
-  '查阅': 30 * 60 * 1000,
-};
-
-function canTriggerDiary(tag) {
-  const wait = DEBOUNCE_MAP[tag];
-  if (!wait) return true;
-  const now = Date.now();
-  if (now - (lastDiaryTrigger[tag] || 0) < wait) return false;
-  lastDiaryTrigger[tag] = now;
-  return true;
+// ---- 后台任务专属队列：日记/碎碎念有序排队，不抢前台 ----
+let backgroundAiQueue = Promise.resolve();
+function enqueueBackgroundAi(taskFn) {
+  backgroundAiQueue = backgroundAiQueue.then(taskFn).catch(e => {
+    console.log('[后台任务异常]', e && e.message);
+  });
+  return backgroundAiQueue;
 }
+
+// ---- 429 自动重试：遇到并发限制自动等待重试，不把错误抛给前端 ----
+async function safeStream(client, options, onChunk) {
+  let retries = 3;
+  while (retries > 0) {
+    try {
+      const stream = client.messages.stream(options);
+      let full = '';
+      for await (const event of stream) {
+        if (event.type === 'content_block_delta' && event.delta && event.delta.type === 'text_delta') {
+          full += event.delta.text;
+          if (onChunk) onChunk(event.delta.text);
+        }
+      }
+      return full;
+    } catch (err) {
+      if (err && err.status === 429) {
+        retries--;
+        await new Promise(r => setTimeout(r, 1500));
+      } else {
+        throw err;
+      }
+    }
+  }
+  throw new Error('并发限制重试超限');
+}
+
+async function safeCreate(client, options) {
+  let retries = 3;
+  while (retries > 0) {
+    try {
+      return await client.messages.create(options);
+    } catch (err) {
+      if (err && err.status === 429) {
+        retries--;
+        await new Promise(r => setTimeout(r, 1500));
+      } else {
+        throw err;
+      }
+    }
+  }
+  throw new Error('并发限制重试超限');
+}
+
+let lastNotebookIds = new Set(); // 上次已记入事件的笔记条目 id，用于只记新增
 
 const TTS_VOICES = {
   captain: 'zh-CN-YunxiNeural',
@@ -304,208 +382,23 @@ const todayTimeStr = () => {
 
 const diaryFileFor = (dateStr) => path.join(diaryRootDir(), dateStr + '.md');
 
-const clipboardHistoryPath = () => path.join(app.getPath('userData'), 'clipboard-history.json');
-const clipboardImagesDir = () => {
-  const dir = path.join(app.getPath('userData'), 'clipboard-images');
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  return dir;
-};
-
-function readClipHistory() {
-  try { return JSON.parse(fs.readFileSync(clipboardHistoryPath(), 'utf8')); }
-  catch (e) { return { items: [] }; }
-}
-function writeClipHistory(data) {
-  try { fs.writeFileSync(clipboardHistoryPath(), JSON.stringify(data, null, 2)); }
-  catch (e) {}
-}
-
-function pushClipText(text) {
-  const s = String(text || '');
-  if (!s || s.length > 10000) return;
-  const data = readClipHistory();
-  if (!Array.isArray(data.items)) data.items = [];
-  const idx = data.items.findIndex(it => it.type === 'text' && it.content === s);
-  if (idx >= 0) {
-    const [item] = data.items.splice(idx, 1);
-    item.time = Date.now();
-    data.items.unshift(item);
-  } else {
-    data.items.unshift({
-      id: Date.now() + Math.random(),
-      type: 'text',
-      content: s,
-      time: Date.now(),
-      pinned: false,
-    });
-  }
-  const pinned = data.items.filter(it => it.pinned);
-  const unpinned = data.items.filter(it => !it.pinned);
-  data.items = pinned.concat(unpinned.slice(0, 100));
-  writeClipHistory(data);
-}
-
-function pushClipImage(input) {
-  let png;
-  if (Buffer.isBuffer(input)) {
-    png = input;
-  } else if (input && typeof input.isEmpty === 'function' && !input.isEmpty()) {
-    png = input.toPNG();
-  } else {
-    return;
-  }
-  if (!png || png.length === 0) return;
-  if (png.length > 5 * 1024 * 1024) return;
-  const filename = Date.now() + '_' + Math.random().toString(36).slice(2, 8) + '.png';
-  const dest = path.join(clipboardImagesDir(), filename);
-  try { fs.writeFileSync(dest, png); } catch (e) { return; }
-  const data = readClipHistory();
-  if (!Array.isArray(data.items)) data.items = [];
-  data.items.unshift({
-    id: Date.now() + Math.random(),
-    type: 'image',
-    imageFile: filename,
-    time: Date.now(),
-    pinned: false,
-  });
-  const pinned = data.items.filter(it => it.pinned);
-  const unpinned = data.items.filter(it => !it.pinned);
-  data.items = pinned.concat(unpinned.slice(0, 120));
-  writeClipHistory(data);
-}
 
 function loadConfig() {
   try { return JSON.parse(fs.readFileSync(configPath(), 'utf8')); }
   catch (e) { return {}; }
 }
 function saveConfig(c) {
-  try { fs.writeFileSync(configPath(), JSON.stringify(c, null, 2)); }
-  catch (e) {}
-}
-
-// ---- 记忆事件采集（只记"发生什么"，不记内容，静默追加写入） ----
-function recordEvent(type, data) {
   try {
-    const now = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    const t = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate())
-      + 'T' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds())
-      + (function () {
-        const o = -now.getTimezoneOffset();
-        const sign = o >= 0 ? '+' : '-';
-        const hh = pad(Math.floor(Math.abs(o) / 60));
-        const mm = pad(Math.abs(o) % 60);
-        return sign + hh + ':' + mm;
-      })();
-    const evt = { t, type };
-    if (data && typeof data === 'object') Object.assign(evt, data);
-    fs.appendFileSync(eventsPath(), JSON.stringify(evt) + '\n');
+    const p = configPath();
+    // 先备份旧的
+    if (fs.existsSync(p)) {
+      try { fs.copyFileSync(p, p + '.bak'); } catch (e) {}
+    }
+    // 写临时文件再重命名（原子写入，防覆盖一半）
+    const tmp = p + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(c, null, 2));
+    fs.renameSync(tmp, p);
   } catch (e) {}
-}
-
-// ---- 天气：IP 定位 + Open-Meteo（无 Key，静默失败） ----
-const WEATHER_CODE_MAP = {
-  0: '晴', 1: '晴间多云', 2: '多云', 3: '阴',
-  45: '雾', 48: '雾凇',
-  51: '毛毛雨', 53: '小雨', 55: '中雨',
-  56: '冻雨', 57: '冻雨',
-  61: '小雨', 63: '中雨', 65: '大雨',
-  66: '冻雨', 67: '冻雨',
-  71: '小雪', 73: '中雪', 75: '大雪', 77: '雪粒',
-  80: '阵雨', 81: '阵雨', 82: '暴雨',
-  85: '阵雪', 86: '阵雪',
-  95: '雷阵雨', 96: '雷阵雨伴冰雹', 99: '雷暴'
-};
-
-async function fetchLocation() {
-    console.log('[天气] 查询天气...');
-  // 主 API：ip-api.com（免费、无 key、国内可访问）
-  try {
-    console.log('[天气] 尝试定位...');
-    const res = await fetch('http://ip-api.com/json/?fields=status,city,lat,lon', {
-      signal: AbortSignal.timeout(6000)
-    });
-    if (res.ok) {
-      const d = await res.json();
-      if (d.status === 'success' && d.city && d.lat && d.lon) {
-        console.log('[天气] 定位成功：', d.city);
-        return { city: d.city, lat: d.lat, lon: d.lon };
-      }
-    }
-  } catch (e) {
-    console.log('[天气] ip-api 失败：', e.message);
-  }
-  // 备用：ipapi.co
-  try {
-    const res = await fetch('https://ipapi.co/json/', {
-      signal: AbortSignal.timeout(6000)
-    });
-    if (res.ok) {
-      const d = await res.json();
-      if (d.city && d.latitude && d.longitude) {
-        console.log('[天气] 定位成功(备用)：', d.city);
-        return { city: d.city, lat: d.latitude, lon: d.longitude };
-      }
-    }
-  } catch (e) {
-    console.log('[天气] ipapi 失败：', e.message);
-  }
-  console.log('[天气] 所有定位 API 都失败');
-  return null;
-}
-
-async function fetchWeather(lat, lon) {
-  try {
-    const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + '&current=temperature_2m,weather_code';
-    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
-    if (!res.ok) return null;
-    const d = await res.json();
-    if (!d.current) return null;
-    return {
-      temp: Math.round(d.current.temperature_2m),
-      condition: WEATHER_CODE_MAP[d.current.weather_code] || '未知'
-    };
-  } catch (e) {
-    return null;
-  }
-}
-
-async function refreshWeather() {
-  const c = cfg();
-  console.log('[天气] 启动刷新，consent=' + c.locationConsent + '，缓存的updatedAt=' + (weatherCache.updatedAt || 0));
-  // 若用户拒绝定位，直接跳过
-  if (c.locationConsent !== true) return;
-
-  // 若有缓存的坐标，直接用
-  let lat = weatherCache.lat;
-  let lon = weatherCache.lon;
-  let city = weatherCache.city;
-
-  // 若 config 里手动填了城市坐标，优先用（可选，暂不实现）
-
-  // 没有坐标，先定位
-  if (lat == null || lon == null) {
-    const loc = await fetchLocation();
-    if (!loc) return;
-    lat = loc.lat;
-    lon = loc.lon;
-    city = loc.city;
-  }
-
-  const w = await fetchWeather(lat, lon);
-  if (!w) return;
-
-  weatherCache = {
-    city: city,
-    temp: w.temp,
-    condition: w.condition,
-    lat: lat,
-    lon: lon,
-    updatedAt: Date.now()
-  };
-  // 持久化到 config
-  saveConfig(Object.assign({}, cfg(), { weatherCache: weatherCache }));
-  console.log('[天气]', city, w.temp + '°C', w.condition);
 }
 
 function snippetOf(text, len) {
@@ -554,229 +447,24 @@ function deepseekKey() {
 }
 
 function getClaude() {
-  // 优先读取你 config.json 里的 DeepSeek Key
+  // 优先用 DeepSeek
   const deepseekKey = cfg().deepseekApiKey;
   if (deepseekKey) {
     return new AnthropicClient({
       apiKey: deepseekKey,
-      baseURL: 'https://api.deepseek.com/anthropic' // 接入 DeepSeek 大脑
+      baseURL: 'https://api.deepseek.com/anthropic'
     });
   }
-  // 如果没填 DeepSeek Key，再退回去找原来的 Claude Key
+  // 如果没填 DeepSeek，再退回找 Kimi（或者备用 Claude Key）
+  const kimiKey = cfg().kimiApiKey;
+  if (kimiKey) {
+    return new AnthropicClient({
+      apiKey: kimiKey,
+      baseURL: 'https://api.moonshot.cn/anthropic'
+    });
+  }
   const apiKey = process.env.ANTHROPIC_API_KEY || cfg().anthropicApiKey || undefined;
   return new AnthropicClient(apiKey ? { apiKey } : {});
-}
-
-// ---- 日记：实时追加（活记录，非事后总结） ----
-let diaryWriting = false;
-
-async function appendDiaryEntry(tag, eventDesc, extra) {
-  if (diaryWriting) return; // 防并发，上一个还没写完就跳过
-  diaryWriting = true;
-  try {
-    // 读三份风格说明书
-    const styleDir = path.join(__dirname, 'styles');
-    const captain = fs.existsSync(path.join(styleDir, 'captain.md')) ? fs.readFileSync(path.join(styleDir, 'captain.md'), 'utf8') : '';
-    const maid    = fs.existsSync(path.join(styleDir, 'maid.md'))    ? fs.readFileSync(path.join(styleDir, 'maid.md'), 'utf8')    : '';
-    const guard   = fs.existsSync(path.join(styleDir, 'guard.md'))   ? fs.readFileSync(path.join(styleDir, 'guard.md'), 'utf8')   : '';
-
-    let extraStructure = '';
-    if (tag === '开场') {
-      extraStructure =
-        '\n\n【开场的特殊结构（必须严格遵守）】\n' +
-        '这次的标签是"开场"，是用户当天第一次打开程序。\n' +
-        '每个角色写 3 句话，用"。"分隔或分 3 小句，每句都不超过 15 字。\n' +
-        '\n' +
-        '第 1 句：欢迎（打招呼，贴合时间——早上说早，晚上说晚上，深夜说这么晚）\n' +
-        '第 2 句：天气（只有【天气信息】里给了天气时才写；用天气数据做引子，但不要复述数字，' +
-        '比如"今天挺暖和"、"外面在下雨"；没给天气就跳过这句）\n' +
-        '第 3 句：角色专属——\n' +
-        '  - 舰长：跟工作有关的（今天从哪开始 / 需要我做什么 / 方向由你定）\n' +
-        '  - 女仆：跟关心有关的（好好照顾自己 / 慢慢来 / 累了就说）\n' +
-        '  - 守卫：跟安全有关的（系统正常 / 我盯着 / 有事喊我）\n' +
-        '\n' +
-        '参考（不要照抄，按这个调子写）：\n' +
-        '舰长：指挥官，晚上好。夜里风凉。今天从哪件事开始。\n' +
-        '女仆：主人，晚上好。外面挺冷的，记得加件衣服。慢慢来，不着急。\n' +
-        '守卫：长官，晚上好。系统正常，我盯着。有事喊我。\n' +
-        '\n' +
-        '注意：\n' +
-        '- 3 句话加起来不超过 40 字\n' +
-        '- 第 2 句只有在【天气信息】存在时才写\n' +
-        '- 禁止编造任何具体事实\n' +
-        '- 禁止"很久不见""好想你"这类夸张表达\n' +
-        '【开场例外（以下明确覆盖上面 systemPrompt 的通用禁忌）】\n' +
-        '- 允许出现打招呼时间词：早上、中午、下午、晚上、深夜、夜深——这些 OK\n' +
-        '- 仍然禁止叙述时间词：今天、昨天、明天、现在、刚才\n' +
-        '- 允许出现"你"字（开场是直接对用户说话）\n' +
-        '- 允许每角色 3 句话、总长不超过 40 字（覆盖"每人一句 20 字"）\n' +
-        '- 其余通用禁忌仍然有效：禁感叹号、禁身体动作、禁编造、禁夸张\n';
-    }
-
-    const systemPrompt =
-      '你是 G计划 桌宠的三个角色，现在要一起在同一个日记里写下对一件事的即时反应。\n\n' +
-      '==== 舰长 =====\n' + captain + '\n\n' +
-      '==== 女仆 =====\n' + maid + '\n\n' +
-      '==== 守卫 =====\n' + guard + '\n\n' +
-      '==== 输出要求（必须严格遵守）====\n' +
-      '1. 三个角色各写一句，最多 20 字\n' +
-      '2. 三句话的语气必须明显不同——如果三句风格相似，视为失败\n' +
-      '3. 严格遵循各自风格说明书的"说话方式"和"禁忌"\n' +
-      '4. 不用感叹号\n' +
-      '5. 不要解释，不要前缀，不要 markdown\n' +
-      '6. 严格用下面格式输出，一字不差：\n\n' +
-      '舰长：xxx\n女仆：xxx\n守卫：xxx\n\n' +
-      '【称呼规则】\n' +
-      '- 舰长称呼用户为"指挥官"\n' +
-      '- 女仆称呼用户为"主人"\n' +
-      '- 守卫称呼用户为"长官"\n' +
-      '- 不要用"他"字——一律用上述称呼\n\n' +
-      '【禁忌（违反即失败）】\n' +
-      '- 禁止出现："今天""昨天""明天""早上""晚上""现在"等时间词\n' +
-      '- 禁止感叹号\n' +
-      '- 禁止"你"字\n' +
-      '- 禁止任何身体动作（倒水/泡茶/开灯/推椅子一律不许）\n' +
-      '- 如果是【开场】标签，不能说"很久""又来了""还是"——这是当天第一次\n' +
-      '【关于天气】\n' +
-      '- 允许三个角色在台词里自然引用天气（如"外面在下雨"、"今天真冷"）\n' +
-      '- 不强制，不堆砌，不是每条都要提\n' +
-      '- 引用时要贴合角色（舰长提战略环境、女仆提身体感受、守卫提风险）' +
-      extraStructure;
-
-    let tagHint = '';
-    if (tag === '开场') tagHint = '（这是今天第一次打开程序，不要提"很久""又来了"这类有历史感的词）';
-    else if (tag === '收尾') tagHint = '（今天要结束了）';
-    let weatherHint = '';
-    if (weatherCache && weatherCache.city && weatherCache.temp != null) {
-      weatherHint = '\n\n【天气信息】' + weatherCache.city + '，' + weatherCache.condition + '，' + weatherCache.temp + '℃';
-    }
-    const userPrompt = '刚发生的事件（标签：' + tag + '）' + tagHint + '：\n' + eventDesc + weatherHint;
-
-    const client = getClaude();
-    const resp = await client.messages.create({
-      model: 'deepseek-v4-flash',
-      max_tokens: 2000,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-    });
-
-    const text = (resp.content || [])
-      .filter(b => b.type === 'text').map(b => b.text).join('').trim();
-    if (!text) {
-      console.log('[日记] AI 返回空，跳过', tag);
-      return;
-    }
-
-    // 解析三行
-    const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
-    const getLine = (prefix) => {
-      const l = lines.find(s => s.startsWith(prefix) || s.startsWith('**' + prefix) || s.startsWith('*' + prefix));
-      if (!l) return '';
-      // 去掉前缀和可能的 markdown 符号
-      return l.replace(/^\*+/, '').replace(prefix, '').replace(/\*+$/, '').trim();
-    };
-    const cap = getLine('舰长：');
-    const md  = getLine('女仆：');
-    const gd  = getLine('守卫：');
-    if (!cap || !md || !gd) {
-      console.log('[日记] 解析失败，原始文本：', text.slice(0, 200));
-      return;
-    }
-
-    // 组装写入
-    const tagDisplay = extra ? tag + '·' + extra : tag;
-    const t = todayTimeStr();
-    const pad = '    '; // 时间后对齐
-    const entry =
-      t + '  [' + tagDisplay + ']' + pad + '舰长：' + cap + '\n' +
-      t + '  [' + tagDisplay + ']' + pad + '女仆：' + md + '\n' +
-      t + '  [' + tagDisplay + ']' + pad + '守卫：' + gd + '\n\n';
-
-    fs.appendFileSync(diaryFileFor(todayDateStr()), entry, 'utf8');
-
-    // 朗读当前角色的那句
-    if (cfg().ttsEnabled !== false) {
-      const roleKey = currentRoleKey();
-      const roleText = roleKey === 'captain' ? cap : (roleKey === 'maid' ? md : gd);
-      if (roleText && win && !win.isDestroyed()) {
-        win.webContents.send('diary:speak', { role: roleKey, text: roleText });
-      }
-    }
-
-    console.log('[日记] 追加', tag);
-  } catch (err) {
-    console.log('[日记] 异常：', (err && err.message) || err);
-  } finally {
-    diaryWriting = false;
-  }
-}
-
-function describeEventForDiary(event) {
-  switch (event.type) {
-    case 'app_start':
-      return '用户启动了程序';
-    case 'chat_sent': {
-      const s = event.preview || event.content || '';
-      return '用户发了一条 ' + event.len + ' 字的消息' + (s ? '："' + s + '"' : '');
-    }
-    case 'clipboard_copy': {
-      if (event.kind === 'image') return '用户复制了一张图片';
-      const s = event.preview || event.content || '';
-      return '用户复制了 ' + event.len + ' 字的内容' + (s ? '："' + s + '"' : '');
-    }
-    case 'window_open': {
-      const nameMap = { chat: '对话', translate: '翻译', notebook: '笔记本', clipboard: '剪贴板', vault: '密码库', guard: '控制台', exercise: '运动' };
-      return '用户打开了' + (nameMap[event.window] || event.window) + '窗口';
-    }
-    case 'role_switch':
-      return '用户从 ' + event.from + ' 切换到了 ' + event.to;
-    case 'quick_action':
-      return '用户点击了快捷盘上的 ' + event.action;
-    case 'note_added': {
-      const s = event.preview || event.content || '';
-      return '用户在笔记本里记了一条' + (s ? '："' + s + '"' : '');
-    }
-    case 'system_alert':
-      return event.kind === 'battery_low' ? '系统电量低' : '系统网络断开';
-    default:
-      return '事件：' + event.type;
-  }
-}
-
-function shouldDoOpening() {
-  const f = diaryFileFor(todayDateStr());
-  if (!fs.existsSync(f)) return true;
-  // 文件存在但里面没有 [开场]
-  const content = fs.readFileSync(f, 'utf8');
-  return !content.includes('[开场]');
-}
-
-async function triggerOpening() {
-  if (!shouldDoOpening()) return;
-  await appendDiaryEntry('开场', '新的一天开始了，用户第一次打开程序');
-}
-
-function appendClosing() {
-  const f = diaryFileFor(todayDateStr());
-  if (fs.existsSync(f)) {
-    const content = fs.readFileSync(f, 'utf8');
-    if (content.includes('[收尾]')) return; // 今天已收尾
-  }
-  const t = todayTimeStr();
-  const entry =
-    t + '  [收尾]    舰长：今天到此。明天见。\n' +
-    t + '  [收尾]    女仆：主人晚安，好好休息~\n' +
-    t + '  [收尾]    守卫：日志到此。夜间无事。\n\n';
-  fs.appendFileSync(diaryFileFor(todayDateStr()), entry, 'utf8');
-  console.log('[日记] 追加 收尾');
-}
-
-function tryClosingOnExit() {
-  try {
-    appendClosing();
-  } catch (e) {
-    console.log('[日记] 收尾失败：', (e && e.message) || e);
-  }
 }
 
 let statusCacheForNet = { netCheckedAt: 0, lastNetOk: true, lastLoggedNet: null};
@@ -801,10 +489,12 @@ async function getSystemStatus() {
   statusBusy = true;
   try {
     const status = {};
-    const [battery, cpu, mem] = await Promise.all([
+    const [battery, cpu, mem, disks, netStats] = await Promise.all([
       si.battery().catch(() => null),
       si.currentLoad().catch(() => null),
       si.mem().catch(() => null),
+      si.fsSize().catch(() => null),
+      si.networkStats().catch(() => null),
     ]);
         if (battery && battery.hasBattery && typeof battery.percent === 'number') {
       status.hasBattery = true;
@@ -829,6 +519,25 @@ async function getSystemStatus() {
         if (usedBytes / mem.total > 0.85) status.mem = 'high';
       }
     }
+
+    // 磁盘：找最大的分区
+    if (Array.isArray(disks) && disks.length) {
+      const main = disks.reduce((a, b) => (a.size > b.size ? a : b));
+      if (main && main.size > 0) {
+        status.diskTotalGB = Math.round(main.size / 1024 / 1024 / 1024);
+        status.diskFreeGB = Math.round((main.size - main.used) / 1024 / 1024 / 1024);
+      }
+    }
+
+    // 网络流量：取活跃网卡
+    if (Array.isArray(netStats) && netStats.length) {
+      const active = netStats.find(s => (s.rx_sec || 0) + (s.tx_sec || 0) > 0) || netStats[0];
+      if (active) {
+        status.netRxKBps = Math.round((active.rx_sec || 0) / 1024);
+        status.netTxKBps = Math.round((active.tx_sec || 0) / 1024);
+      }
+    }
+
 const now = Date.now();
 if (now - statusCacheForNet.netCheckedAt > 3000) {
   try {
@@ -847,10 +556,13 @@ if (prevNet !== curNet) {
   console.log('[网络]', curNet ? '在线' : '离线');
   statusCacheForNet.lastLoggedNet = curNet;
 }
-    console.log('[状态] getSystemStatus 返回:', JSON.stringify(status));
+    // 系统运行时长
+    status.uptimeHours = Math.round(os.uptime() / 3600);
+
+    
     return status;
   } catch (e) {
-    console.error('[状态] 获取系统状态失败:', e.message);
+    
     return {};
   } finally {
     statusBusy = false;
@@ -916,6 +628,7 @@ function loadTTSManifest() {
 }
 
 function classifyError(err) {
+  console.error('[AI-原始报错]', err); // 加上这一行，把真实错误打印到终端
   if (err instanceof Anthropic.AuthenticationError)
     return 'Claude 没登录或 Key 无效:请在配置里填 anthropicApiKey,或运行 ant auth login';
   if (err instanceof Anthropic.RateLimitError) return '被限流啦,稍等一会儿再试~';
@@ -1455,7 +1168,6 @@ function openQuickAssist(mode, text) {
   });
   qaWin.loadFile('quickassist.html');
     qaWin.on('closed', () => {
-    console.log('[qa] 窗口关闭，调用栈：', new Error().stack);
     qaWin = null;
   });
 }
@@ -1530,7 +1242,7 @@ async function captureSelectionToNotebook() {
 }
 
 function send(name, value) {
-  if (win) win.webContents.send('action', name, value);
+  if (win && !win.isDestroyed()) win.webContents.send('action', name, value);
 }
 
 
@@ -1549,71 +1261,6 @@ function runSystemCommand(action) {
   });
 }
 
-function startClipboardWatcher() {
-  if (clipboardWatcher) return;
-  clipboardWatcher = setInterval(() => {
-    try {
-      // ===== 图片检测（独立，MD5 去重）=====
-      const imgBuf = clipboard.readBuffer('image/png');
-      if (imgBuf && imgBuf.length > 0) {
-        const hash = crypto.createHash('md5').update(imgBuf).digest('hex');
-        if (hash !== lastClipboardImageHash) {
-          lastClipboardImageHash = hash;
-          pushClipImage(imgBuf);
-          recordEvent('clipboard_copy', { kind: 'image' });
-        }
-        return;
-      }
-
-      // ===== 文本检测 =====
-      const cur = clipboard.readText();
-      if (cur === lastClipboardText) return;
-      lastClipboardText = cur;
-      const s = String(cur || '').trim();
-      if (!s) return;
-
-      // ===== 先无条件采集到历史（这才是剪贴板历史该干的）=====
-      pushClipText(s);
-
-      // ===== 敏感信息检测（只负责弹窗提示；敏感内容不记任何事件）=====
-      let sensitive = null;
-      if (s.length >= 6 && s.length <= 200) {
-        if (/^\d{17}[\dXx]$/.test(s)) sensitive = { type: '身份证号', level: 'high', advice: '请勿轻易发给他人，谨慎上传证件照。' };
-        else if (/^\d{16,19}$/.test(s)) sensitive = { type: '银行卡号', level: 'high', advice: '注意核对收款方，谨防诈骗转账。' };
-        else if (/^1[3-9]\d{9}$/.test(s)) sensitive = { type: '手机号', level: 'low', advice: '警惕验证码诈骗，不要转告陌生人。' };
-        else if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) && s.length < 60) sensitive = { type: '邮箱地址', level: 'low', advice: '警惕钓鱼邮件，陌生链接不要点。' };
-        else if (/^(sk-|ghp_|gho_|AKIA)[A-Za-z0-9_\-]{16,}$/.test(s)) sensitive = { type: 'API 密钥', level: 'high', advice: '若已泄露，请立即到对应平台吊销并重新生成。' };
-      }
-
-      if (sensitive) {
-        openPwdConfirmWindow({ type: 'sensitive', data: { type: sensitive.type, level: sensitive.level, text: s, advice: sensitive.advice } });
-        return;
-      }
-
-      // 非敏感文本：按记忆粒度记录复制事件
-      const level = cfg().memoryLevel || 'snippet';
-      const evt = { kind: 'text', len: s.length };
-      if (level === 'snippet') evt.preview = snippetOf(s, 20);
-      else if (level === 'detail') evt.content = s;
-      recordEvent('clipboard_copy', evt);
-      if (evt.len > 50 && canTriggerDiary('复制')) {
-        appendDiaryEntry('复制', describeEventForDiary({ type: 'clipboard_copy', kind: 'text', len: evt.len, preview: evt.preview, content: evt.content }), evt.len + '字').catch(()=>{});
-      }
-
-      // ===== 密码特征（保持原有行为）=====
-      if (s.length < 6 || s.length > 64) return;
-      if (/\s/.test(s)) return;
-      if (!/[a-zA-Z]/.test(s) || !/[0-9]/.test(s)) return;
-      if (/^https?:\/\//i.test(s)) return;
-      if (/@/.test(s) && /\./.test(s)) return;
-      if (/^\d{11}$/.test(s)) return;
-      const pwdData = { site: '', user: '', pass: s };
-      if (!shouldSkipPassword(pwdData)) {
-        openPwdConfirmWindow({ type: 'password', data: pwdData });
-      }
-    } catch (e) {}
-  }, 1000);
-}
 
 function startExtServer() {
   if (extServer) return;
@@ -1672,26 +1319,6 @@ function switchRole(key) {
   }
 }
 
-function switchRoleTemporary(key, durationMs) {
-  console.log('[临时切]', key, durationMs, '\n来源:', new Error().stack);   // ← 加这行
-  const cur = currentRoleKey();
-  if (cur === key) return; // 已经是该角色，不做切换
-  if (autoSwitchTimer) { clearTimeout(autoSwitchTimer); autoSwitchTimer = null; }
-  if (!roleBeforeAutoSwitch) {
-  roleBeforeAutoSwitch = cur;
-  console.log('[记录原角色]', cur, '（临时切到', key, '，', durationMs, 'ms 后恢复）');
-}
-  switchRole(key);
-  autoSwitchTimer = setTimeout(() => {
-   if (roleBeforeAutoSwitch) {
-  console.log('[恢复原角色]', roleBeforeAutoSwitch);
-  switchRole(roleBeforeAutoSwitch);
-  roleBeforeAutoSwitch = null;
-}
-    autoSwitchTimer = null;
-  }, durationMs);
-}
-
 function cycleRole() {
   const order = ['captain', 'maid', 'guard'];
   const i = order.indexOf(currentRoleKey());
@@ -1717,6 +1344,7 @@ function buildMenu() {
       { label: '记下选中文字 ⌨ Shift+Alt+S', click: () => captureSelectionToNotebook() },
     ] },
     { label: '日记 ✎', click: () => openDiary() },
+    { label: '打开音乐舱 🎵', click: () => { shell.openPath(desktopMusicDir()); } },
     { type: 'separator' },
     { label: '对话 💬  Ctrl+Shift+C', click: () => openChat() },
     { label: '划词助手 ✨  Shift+Alt+A', click: () => quickAssist('auto') },
@@ -1827,9 +1455,6 @@ ipcMain.on('set-position', (e, x, y) => {
 });
 ipcMain.on('show-context-menu', () => buildMenu().popup({ window: win }));
 ipcMain.on('set-tray-icon', (e, d) => { if (!tray) createTray(d); });
-ipcMain.on('role:temp-switch', (e, key, durationMs) => {
-  switchRoleTemporary(key, durationMs || 15000);
-});
 ipcMain.handle('get-cursor', () => screen.getCursorScreenPoint());
 ipcMain.handle('set-click-through', (e, b) => { clickThrough = b; win.setIgnoreMouseEvents(b, { forward: true }); });
 ipcMain.handle('resize', (e, dir) => {
@@ -1839,14 +1464,68 @@ ipcMain.handle('resize', (e, dir) => {
 });
 
 ipcMain.handle('get-balance', async () => {
-  const key = deepseekKey();
-  if (!key) return { ok: false, reason: 'credential-missing', message: '没找到 DeepSeek Key,请在配置里填 deepseekApiKey' };
-  try {
-    const data = await fetchDeepseekBalance(key);
-    return { ok: true, ...data };
-  } catch (err) {
-    return { ok: false, reason: 'fetch-error', message: '查余额失败: ' + ((err && err.message) || err) };
+  const results = {};
+
+  // 查 Kimi 余额
+  const kimiKey = cfg().kimiApiKey || cfg().deepseekApiKey;
+  if (kimiKey) {
+    try {
+      const res = await fetch('https://api.moonshot.cn/v1/users/me/balance', {
+        headers: { Authorization: 'Bearer ' + kimiKey },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        results.kimi = {
+          ok: true,
+          available: Number(data.available_balance || 0),
+          voucher: Number(data.voucher_balance || 0),
+          cash: Number(data.cash_balance || 0),
+          currency: 'CNY',
+        };
+      } else {
+        results.kimi = { ok: false, message: 'HTTP ' + res.status };
+      }
+    } catch (err) {
+      results.kimi = { ok: false, message: (err && err.message) || '请求失败' };
+    }
+  } else {
+    results.kimi = { ok: false, message: '未配置 Kimi Key' };
   }
+
+  // 查 DeepSeek 余额
+  const dsKey = cfg().deepseekApiKey;
+  if (dsKey) {
+    try {
+      const res = await fetch('https://api.deepseek.com/user/balance', {
+        headers: { Authorization: 'Bearer ' + dsKey },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const info = data.balance_infos && data.balance_infos[0];
+        if (info) {
+          results.deepseek = {
+            ok: true,
+            total: Number(info.total_balance || 0),
+            granted: Number(info.granted_balance || 0),
+            toppedUp: Number(info.topped_up_balance || 0),
+            currency: info.currency || 'CNY',
+          };
+        } else {
+          results.deepseek = { ok: false, message: '响应无 balance_infos' };
+        }
+      } else {
+        results.deepseek = { ok: false, message: 'HTTP ' + res.status };
+      }
+    } catch (err) {
+      results.deepseek = { ok: false, message: (err && err.message) || '请求失败' };
+    }
+  } else {
+    results.deepseek = { ok: false, message: '未配置 DeepSeek Key' };
+  }
+
+  return results;
 });
 ipcMain.on('set-mouse-passthrough', (e, pass) => {
   if (win && !win.isDestroyed()) {
@@ -1936,7 +1615,6 @@ ipcMain.handle('asr:start', () => {
   iatSession = new XfyunIatSession(
     credPath,
     (text, isFinal) => {
-      console.log('[ASR] 识别中:', text, 'final=' + isFinal);
       if (win && !win.isDestroyed()) {
         win.webContents.send('asr:result', { text, isFinal });
       }
@@ -2024,85 +1702,12 @@ ipcMain.handle('tts:clear-live-cache', () => {
 ipcMain.handle('maid-reminders-enabled', () => cfg().maidRemindersEnabled !== false);
 ipcMain.handle('wall-bounce-enabled', () => cfg().wallBounce !== false);
 
-ipcMain.handle('clipboard-history:list', () => readClipHistory());
-ipcMain.handle('clipboard-history:paste', (e, id) => {
-  const data = readClipHistory();
-  const item = (data.items || []).find(it => String(it.id) === String(id));
-  if (!item) return { ok: false };
-  if (item.type === 'text') {
-    clipboard.writeText(item.content);
-  } else if (item.type === 'image') {
-    const p = path.join(clipboardImagesDir(), item.imageFile);
-    if (fs.existsSync(p)) {
-      const img = nativeImage.createFromPath(p);
-      clipboard.writeImage(img);
-    }
-  }
-  if (clipWin && !clipWin.isDestroyed()) clipWin.hide();
-  return { ok: true };
-});
-ipcMain.handle('clipboard-history:copy-only', (e, id) => {
-  const data = readClipHistory();
-  const item = (data.items || []).find(it => String(it.id) === String(id));
-  if (!item) return { ok: false };
-  if (item.type === 'text') {
-    clipboard.writeText(item.content);
-  } else if (item.type === 'image') {
-    const p = path.join(clipboardImagesDir(), item.imageFile);
-    if (fs.existsSync(p)) {
-      const img = nativeImage.createFromPath(p);
-      clipboard.writeImage(img);
-    }
-  }
-  return { ok: true };
-});
-ipcMain.handle('clipboard-history:delete', (e, id) => {
-  const data = readClipHistory();
-  if (!Array.isArray(data.items)) data.items = [];
-  const idx = data.items.findIndex(it => String(it.id) === String(id));
-  if (idx >= 0) {
-    const item = data.items[idx];
-    if (item.type === 'image' && item.imageFile) {
-      try { fs.unlinkSync(path.join(clipboardImagesDir(), item.imageFile)); } catch (e) {}
-    }
-    data.items.splice(idx, 1);
-    writeClipHistory(data);
-  }
-  return { ok: true };
-});
-ipcMain.handle('clipboard-history:toggle-pin', (e, id) => {
-  const data = readClipHistory();
-  if (!Array.isArray(data.items)) data.items = [];
-  const item = data.items.find(it => String(it.id) === String(id));
-  if (item) { item.pinned = !item.pinned; writeClipHistory(data); }
-  return { ok: true, pinned: item ? item.pinned : false };
-});
-ipcMain.handle('clipboard-history:clear-all', () => {
-  const data = readClipHistory();
-  const pinned = (data.items || []).filter(it => it.pinned);
-  (data.items || []).forEach(it => {
-    if (!it.pinned && it.type === 'image' && it.imageFile) {
-      try { fs.unlinkSync(path.join(clipboardImagesDir(), it.imageFile)); } catch (e) {}
-    }
-  });
-  writeClipHistory({ items: pinned });
-  return { ok: true };
-});
-ipcMain.handle('clipboard-history:read-image', (e, filename) => {
-  try {
-    const safe = path.basename(String(filename || ''));
-    const full = path.join(clipboardImagesDir(), safe);
-    if (!fs.existsSync(full)) return { ok: false };
-    const buf = fs.readFileSync(full);
-    return { ok: true, dataUrl: 'data:image/png;base64,' + buf.toString('base64') };
-  } catch (e) { return { ok: false }; }
-});
 ipcMain.on('clipboard-history:close', () => { if (clipWin) clipWin.close(); });
 
 ipcMain.handle('whisper', async () => {
   try {
     const client = getClaude();
-    const resp = await client.messages.create({
+    const resp = await safeCreate(client, {
       model: 'deepseek-v4-flash',
       max_tokens: 512,
       system: currentRole().persona,
@@ -2124,7 +1729,15 @@ ipcMain.handle('chat:load', () => {
 
 ipcMain.handle('chat:clear', () => { writeMemory({ messages: [] }); return true; });
 
-ipcMain.handle('chat:send', async (e, text) => {
+ipcMain.on('music:notify-list', (e, files) => {
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('music:list-show', files || []);
+  }
+});
+
+ipcMain.handle('chat:send', async (e, payload) => {
+  const text = typeof payload === 'string' ? payload : (payload && payload.text);
+  const targetRole = (payload && typeof payload === 'object' && payload.role) ? payload.role : currentRoleKey();
   const mem = readMemory();
   const rounds = Number(cfg().chatMemoryRounds || 3);
   const history = mem.messages.slice(-(rounds * 2));
@@ -2157,6 +1770,43 @@ ipcMain.handle('chat:send', async (e, text) => {
     } else if (sys.net === 'ok') {
       sysParts.push('网络：在线');
     }
+
+    // 当前时间
+    const now = new Date();
+    const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    const hour = now.getHours();
+    let period = '凌晨';
+    if (hour >= 6 && hour < 12) period = '上午';
+    else if (hour >= 12 && hour < 14) period = '中午';
+    else if (hour >= 14 && hour < 18) period = '下午';
+    else if (hour >= 18 && hour < 22) period = '晚上';
+    const pad2 = (n) => String(n).padStart(2, '0');
+    sysParts.push('时间：' + now.getFullYear() + '-' + pad2(now.getMonth()+1) + '-' + pad2(now.getDate())
+      + ' ' + weekdays[now.getDay()] + ' ' + period + ' ' + pad2(hour) + ':' + pad2(now.getMinutes()));
+
+    // 磁盘
+    if (typeof sys.diskFreeGB === 'number' && typeof sys.diskTotalGB === 'number') {
+      sysParts.push('磁盘：剩余 ' + sys.diskFreeGB + 'GB / 共 ' + sys.diskTotalGB + 'GB');
+    }
+
+    // 运行时长
+    if (typeof sys.uptimeHours === 'number') {
+      sysParts.push('开机：已运行 ' + sys.uptimeHours + ' 小时');
+    }
+
+    // 网络流量
+    if (typeof sys.netRxKBps === 'number' && typeof sys.netTxKBps === 'number') {
+      const rx = sys.netRxKBps >= 1024
+        ? (sys.netRxKBps / 1024).toFixed(1) + 'MB/s'
+        : sys.netRxKBps + 'KB/s';
+      const tx = sys.netTxKBps >= 1024
+        ? (sys.netTxKBps / 1024).toFixed(1) + 'MB/s'
+        : sys.netTxKBps + 'KB/s';
+      if (sys.netRxKBps + sys.netTxKBps > 0) {
+        sysParts.push('流量：↓' + rx + ' ↑' + tx);
+      }
+    }
+
     if (sysParts.length) {
       systemExtra += '\n\n【当前系统状态】' + sysParts.join('；')
         + '。用户问电脑状态/电量/CPU/内存/网络时，直接用这些数据回答。'
@@ -2165,6 +1815,21 @@ ipcMain.handle('chat:send', async (e, text) => {
   } catch (e) {
     console.error('[chat] 系统状态注入失败:', e.message);
   }
+  // 音乐播放技能：识别用户放歌意图，输出 <PLAY_MUSIC> 标签
+  systemExtra += '\n\n【技能：本地音乐播放】\n'
+    + '当用户要求你放歌/听音乐时，按照以下格式输出：\n'
+    + '<PLAY_MUSIC>搜索关键词</PLAY_MUSIC>\n'
+    + '然后再附上一句符合你人设的台词。\n'
+    + '【绝对规则】\n'
+    + '1. 你的音乐库是用户自己放在本地的文件。如果用户只说“放首歌”“随便听听”，你必须在标签里写“热门推荐”，严禁瞎编歌手或歌名。\n'
+    + '2. 如果用户指定了歌手/风格（如“周杰伦”“轻音乐”），你就提取这几个字放进标签里，如果本地有匹配的文件就能放出来。\n'
+    + '例如：\n'
+    + '用户说“放一首周杰伦的歌” -> <PLAY_MUSIC>周杰伦</PLAY_MUSIC>\n'
+    + '用户说“随便听听” -> <PLAY_MUSIC>热门推荐</PLAY_MUSIC>\n'
+    + '【技能：查看本地曲库】\n'
+    + '如果用户问“音乐库里有什么歌”“我想看看歌单”，你必须输出标签：\n'
+    + '<LIST_MUSIC></LIST_MUSIC>\n'
+    + '然后再附上一句台词，不要自己瞎编歌名。\n';
   const messages = [
     ...history.map((m) => ({ role: m.role, content: m.content })),
     { role: 'user', content: String(text || '') },
@@ -2180,23 +1845,38 @@ ipcMain.handle('chat:send', async (e, text) => {
   }
   try {
     const client = getClaude();
-    const stream = client.messages.stream({
+    const full = await safeStream(client, {
       model: 'deepseek-v4-flash',
       max_tokens: 1024,
-      system: currentRole().persona + systemExtra,
+      system: (ROLES[targetRole] || ROLES[DEFAULT_ROLE]).persona + systemExtra,
       messages,
+    }, (chunkText) => {
+      if (!e.sender.isDestroyed()) e.sender.send('chat:chunk', { text: chunkText });
     });
-    let full = '';
-    for await (const event of stream) {
-      if (event.type === 'content_block_delta' && event.delta && event.delta.type === 'text_delta') {
-        full += event.delta.text;
-        e.sender.send('chat:chunk', { text: event.delta.text });
+    // 拦截音乐播放指令：检测 <PLAY_MUSIC> 标签并通知前端播放本地音乐
+    let finalFull = full;
+    const musicMatch = full.match(/<PLAY_MUSIC>([\s\S]*?)<\/PLAY_MUSIC>/);
+    if (musicMatch) {
+      const query = musicMatch[1].trim();
+      // 不再弹浏览器，改为通知前端播放本地音乐
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('music:play-request', query);
       }
+      console.log('[Music] 触发本地播放请求:', query);
+      finalFull = full.replace(/<PLAY_MUSIC>[\s\S]*?<\/PLAY_MUSIC>/g, '').trim();
+    }
+    // 拦截查看曲库指令：检测 <LIST_MUSIC> 标签并通知前端弹曲库清单
+    if (full.includes('<LIST_MUSIC>')) {
+      finalFull = finalFull.replace(/<LIST_MUSIC>[\s\S]*?<\/LIST_MUSIC>/g, '').trim();
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('music:list-request');
+      }
+      console.log('[Music] 触发曲库列表请求');
     }
     mem.messages.push({ role: 'user', content: String(text) });
-    mem.messages.push({ role: 'assistant', content: full });
+    mem.messages.push({ role: 'assistant', content: finalFull });
     writeMemory(mem);
-    e.sender.send('chat:done', { text: full });
+    e.sender.send('chat:done', { text: finalFull });
     return { ok: true };
   } catch (err) {
     const msg = classifyError(err);
@@ -2354,7 +2034,11 @@ ipcMain.handle('styles:load', (e, role) => {
 ipcMain.handle('memory:stats', () => {
   try {
     if (!fs.existsSync(eventsPath())) return { ok: true, count: 0 };
-    const lines = fs.readFileSync(eventsPath(), 'utf8').split('\n').filter(Boolean);
+    let lines = fs.readFileSync(eventsPath(), 'utf8').split('\n').filter(Boolean);
+    // 只取最近的 100 条，防止越积越多导致 Token 爆炸
+    if (lines.length > 100) {
+      lines = lines.slice(-100);
+    }
     return { ok: true, count: lines.length, path: eventsPath() };
   } catch (e) {
     return { ok: false, message: e.message };
@@ -2501,7 +2185,7 @@ ipcMain.handle('notebook:comment', async (e, text) => {
   if (!text || !String(text).trim()) return { ok: false, message: '内容为空' };
   try {
     const client = getClaude();
-    const resp = await client.messages.create({
+    const resp = await safeCreate(client, {
       model: 'deepseek-v4-flash',
       max_tokens: 600,
       system: '你是G-舰长，指挥官专属的AI管家。风格像钢铁侠的贾维斯：专业、可靠、冷静、务实。称呼用户为"指挥官"。现在指挥官记录了一条笔记/灵感/摘录，请用1~2句话简短点评：可以补充思路、指出风险、或给出建议。不要客套，不要复述原内容，直接给出你的看法。控制在60字以内。即使内容重复或较简单，也要给出不同角度的回应，绝对不要返回空内容。',
@@ -2617,7 +2301,7 @@ ipcMain.handle('translate:send', async (e, text, target) => {
   const lang = LANGS[target] || '英文';
   try {
     const client = getClaude();
-    const resp = await client.messages.create({
+    const resp = await safeCreate(client, {
       model: 'deepseek-v4-flash',
       max_tokens: 2048,
       system: '你是专业的翻译助手。把用户提供的文本翻译成目标语言,要求准确、自然、保留原意与语气。只输出译文本身,不要任何解释、注释、引号或前缀。',
@@ -2662,19 +2346,14 @@ ipcMain.handle('qa:run', async (e, payload) => {
   const reqId = (payload && payload.reqId) || 0;
   try {
     const client = getClaude();
-    const stream = client.messages.stream({
+    const full = await safeStream(client, {
       model: 'deepseek-v4-flash',
       max_tokens: 2048,
       system: mode.system,
       messages: [{ role: 'user', content: t }],
+    }, (chunkText) => {
+      if (!e.sender.isDestroyed()) e.sender.send('qa:chunk', { reqId, text: chunkText });
     });
-    let full = '';
-    for await (const ev of stream) {
-      if (ev.type === 'content_block_delta' && ev.delta && ev.delta.type === 'text_delta') {
-        full += ev.delta.text;
-        e.sender.send('qa:chunk', { reqId, text: ev.delta.text });
-      }
-    }
     e.sender.send('qa:done', { reqId, text: full });
     return { ok: true, text: full };
   } catch (err) {

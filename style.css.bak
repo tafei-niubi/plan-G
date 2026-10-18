@@ -1,0 +1,495 @@
+* { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+
+html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
+
+#stage { position: relative; width: 100%; height: 100%; cursor: grab; }
+#stage:active { cursor: grabbing; }
+
+#pet-wrapper {
+  position: absolute;
+  left: 25%;
+  right: 25%;
+  top: 32.5%;
+  bottom: 32.5%;
+  transform-origin: 50% 50%;
+}
+#pet-wrapper.facing-right { transform: scaleX(-1); }
+#pet-wrapper.facing-right { transform: scaleX(-1); }
+
+body.ghost #stage { opacity: 0.45; }
+
+/* ===== 立绘 ===== */
+/* ===== 角色专属动画（CSS 变量组合） ===== */
+:root {
+  --role-anim: none;
+  --speak-anim: none;
+}
+body[data-role="captain"] { --role-anim: captainGlow 3.2s ease-in-out infinite; }
+body[data-role="maid"]    { --role-anim: maidSway 5.5s ease-in-out infinite; }
+body[data-role="guard"]   { --role-anim: none; }
+/* 守卫警戒：低电量 / 断网时 body 加 .alert 才抖动 */
+body[data-role="guard"].alert { --role-anim: guardShake 0.45s ease-in-out infinite; }
+
+#pet-image {
+  position: absolute;
+  left: 50%;
+  bottom: 4%;
+  translate: -50% 0;
+  height: 88%;
+  width: auto;
+  object-fit: contain;
+  object-position: center bottom;
+  filter: drop-shadow(0 0 20px rgba(0, 229, 255, 0.6)) contrast(1.1) brightness(1.1);
+  animation:
+    petFloat 4s ease-in-out infinite,
+    var(--role-anim, none),
+    var(--speak-anim, none);
+  pointer-events: none;
+  z-index: 9;
+}
+#pet-image.speaking { --speak-anim: petSpeak 0.55s ease-in-out infinite; }
+
+body[data-role="captain"] #pet-image {
+  height: 76%;
+  bottom: 8%;
+  filter: drop-shadow(0 0 20px rgba(0, 229, 255, 0.6)) contrast(1.1) brightness(1.1);
+}
+body[data-role="maid"] #pet-image {
+  bottom: 15%;
+  filter: drop-shadow(0 0 20px rgba(255, 179, 71, 0.7)) contrast(1.1) brightness(1.1);
+}
+body[data-role="guard"] #pet-image {
+  height: 76%;
+  bottom: 8%;
+  filter: drop-shadow(0 0 20px rgba(255, 45, 85, 0.7)) contrast(1.1) brightness(1.1);
+}
+
+/* 呼吸浮动（保留原有） */
+@keyframes petFloat {
+  0%, 100% { translate: -50% 0; }
+  50%      { translate: -50% -8px; }
+}
+
+/* 说话时：立绘轻微缩放（scale 独立于 translate） */
+@keyframes petSpeak {
+  0%, 100% { scale: 1; }
+  50%      { scale: 1.028; }
+}
+
+/* ◈ 舰长：能量/眼线微弱闪烁（filter 脉冲） */
+@keyframes captainGlow {
+  0%, 100% {
+    filter: drop-shadow(0 0 18px rgba(0, 229, 255, 0.55)) contrast(1.08) brightness(1.08);
+  }
+  50% {
+    filter: drop-shadow(0 0 30px rgba(0, 229, 255, 0.95)) contrast(1.15) brightness(1.18);
+  }
+}
+
+/* ❀ 女仆：整体柔和晃动（rotate 属性） */
+@keyframes maidSway {
+  0%, 100% { rotate: -1.6deg; }
+  50%      { rotate: 1.6deg; }
+}
+
+/* ⛨ 守卫：警戒抖动 */
+@keyframes guardShake {
+  0%, 100% { rotate: -0.6deg; }
+  20%      { rotate: 0.7deg; }
+  40%      { rotate: -0.5deg; }
+  60%      { rotate: 0.6deg; }
+  80%      { rotate: -0.4deg; }
+}
+
+#pet-image.role-switching {
+  animation: roleFlash 0.6s ease-out;
+}
+@keyframes roleFlash {
+  0%   { opacity: 0; filter: brightness(3) drop-shadow(0 0 40px #00e5ff) contrast(2); scale: 0.95; }
+  50%  { opacity: 0.8; filter: brightness(1.5) drop-shadow(0 0 20px #00e5ff); scale: 1.02; }
+  100% { opacity: 1; filter: brightness(1.05) drop-shadow(0 0 15px rgba(0, 229, 255, 0.4)); scale: 1; }
+}
+
+/* ===== 气泡 ===== */
+#bubble {
+  position: absolute;
+  left: 50%;
+  top: 2%;
+  translate: -50% 0;
+  background: #fff;
+  color: #333;
+  border: 2px solid #e0e0e0;
+  border-radius: 14px;
+  padding: 8px 14px;
+  font-size: 13px;
+  white-space: normal;
+  width: max-content;
+  max-width: 70%;
+  max-height: 26%;
+  overflow-y: auto;
+  word-wrap: break-word;
+  line-height: 1.55;
+  opacity: 0;
+  transition: opacity .25s, translate .25s, border-color .3s, box-shadow .3s;
+  pointer-events: none;
+  font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  box-shadow: 0 2px 8px rgba(0,0,0,.18);
+  z-index: 10;
+}
+#bubble.show { opacity: 1; }
+
+#bubble::-webkit-scrollbar { width: 4px; }
+#bubble::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.4); border-radius: 2px; }
+
+#bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -10px;
+  translate: -50% 0;
+  border: 10px solid transparent;
+  border-top-color: #fff;
+  border-bottom: none;
+}
+
+body[data-role="captain"] #bubble {
+  background: #0f1a24; color: #e8eaef; border-color: #00e5ff;
+  box-shadow: 0 0 16px rgba(0, 229, 255, 0.4), 0 2px 8px rgba(0,0,0,.4);
+}
+body[data-role="captain"] #bubble::after { border-top-color: #0f1a24; }
+
+body[data-role="maid"] #bubble {
+  background: #2a1a20; color: #f5e8ea; border-color: #ffb347;
+  box-shadow: 0 0 16px rgba(255, 179, 71, 0.4), 0 2px 8px rgba(0,0,0,.4);
+}
+body[data-role="maid"] #bubble::after { border-top-color: #2a1a20; }
+
+body[data-role="guard"] #bubble {
+  background: #1a0808; color: #f5e8ea; border-color: #ff2d55;
+  box-shadow: 0 0 16px rgba(255, 45, 85, 0.4), 0 2px 8px rgba(0,0,0,.4);
+}
+body[data-role="guard"] #bubble::after { border-top-color: #1a0808; }
+
+/* ===== 特效 ===== */
+#fx { position: absolute; inset: 0; pointer-events: none; z-index: 11; }
+.fx { position: absolute; font-size: 22px; line-height: 1; }
+.heart { animation: floatUp 1.6s ease-out forwards; }
+.zzz { color: #7788aa; font-weight: bold; font-size: 20px; animation: zzz 1.8s ease-out forwards; }
+.food { position: absolute; font-size: 34px; animation: foodFall 0.9s ease-in forwards; }
+.wallbump { animation: wallBump 0.5s ease-out forwards; }
+
+@keyframes floatUp { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(-34px); opacity: 0; } }
+@keyframes zzz {
+  0% { transform: translate(0,0) scale(0.6); opacity: 0; }
+  30% { opacity: 1; }
+  100% { transform: translate(18px,-46px) scale(1.25); opacity: 0; }
+}
+@keyframes foodFall { 0% { transform: translateY(0) rotate(0deg); } 100% { transform: translateY(150px) rotate(20deg); } }
+@keyframes wallBump {
+  0% { transform: translate(-50%, -50%) scale(0.3); opacity: 0; }
+  25% { transform: translate(-50%, -50%) scale(1.3); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.7); opacity: 0; }
+}
+
+/* ===== 快捷操作盘（全息悬浮） ===== */
+#quick-panel {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+#quick-panel.hidden { display: none; }
+
+.qa-box {
+  position: absolute;
+  width: 90px;
+  height: 33px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: linear-gradient(135deg, rgb(from var(--role-accent) r g b / 0.15), rgb(from var(--role-accent) r g b / 0.05));
+  border: 1px solid var(--role-accent);
+  box-shadow: 0 0 12px rgb(from var(--role-accent) r g b / 0.35), inset 0 0 16px rgb(from var(--role-accent) r g b / 0.08);
+  backdrop-filter: blur(6px);
+  color: var(--role-accent);
+  cursor: pointer;
+  opacity: 0;
+  scale: 0.7;
+  transition: opacity 0.3s ease-out, scale 0.3s ease-out, box-shadow 0.25s ease;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  animation: hologramFloat 3s ease-in-out infinite;
+}
+#quick-panel.active .qa-box { pointer-events: auto; }
+
+.qa-box.open {
+  opacity: 1;
+  scale: 1;
+  animation: qaBoxIn 0.3s ease-out backwards, hologramFloat 3s ease-in-out infinite;
+}
+/* 出现错开(i*40ms) + 浮动相位错开(i*0.4s) */
+.qa-box.open:nth-child(1)  { animation-delay: 0s,    0s; }
+.qa-box.open:nth-child(2)  { animation-delay: 0.04s, 0.4s; }
+.qa-box.open:nth-child(3)  { animation-delay: 0.08s, 0.8s; }
+.qa-box.open:nth-child(4)  { animation-delay: 0.12s, 1.2s; }
+.qa-box.open:nth-child(5)  { animation-delay: 0.16s, 1.6s; }
+.qa-box.open:nth-child(6)  { animation-delay: 0.2s,  2s; }
+.qa-box.open:nth-child(7)  { animation-delay: 0.24s, 2.4s; }
+.qa-box.open:nth-child(8)  { animation-delay: 0.28s, 2.8s; }
+.qa-box.open:nth-child(9)  { animation-delay: 0.32s, 3.2s; }
+.qa-box.open:nth-child(10) { animation-delay: 0.36s, 3.6s; }
+
+/* 收起:反向 200ms ease-in */
+#quick-panel.closing .qa-box {
+  transition: opacity 0.2s ease-in, scale 0.2s ease-in, box-shadow 0.2s ease-in;
+}
+
+.qa-box:hover {
+  scale: 1.05;
+  box-shadow: 0 0 20px rgb(from var(--role-accent) r g b / 0.6), inset 0 0 20px rgb(from var(--role-accent) r g b / 0.15);
+  animation-play-state: paused;
+}
+
+@keyframes hologramFloat {
+  0%, 100% { translate: 0 0; }
+  50%      { translate: 0 -4px; }
+}
+@keyframes qaBoxIn {
+  from { opacity: 0; scale: 0.7; }
+  to   { opacity: 1; scale: 1; }
+}
+
+/* 图标 + 中文/英文双行 */
+.qa-icon { font-size: 16px; flex-shrink: 0; line-height: 1; }
+.qa-text { display: flex; flex-direction: column; gap: 1px; }
+.qa-label { font-size: 11px; font-weight: 500; line-height: 1.1; }
+.qa-en { font-size: 8px; opacity: 0.5; letter-spacing: 1px; line-height: 1; }
+
+/* 右上角编号 01~09 */
+.qa-num {
+  position: absolute;
+  top: 3px;
+  right: 6px;
+  font-size: 8px;
+  opacity: 0.4;
+  letter-spacing: 1px;
+  line-height: 1;
+  font-family: 'Consolas', 'Courier New', monospace;
+}
+
+/* 顶部 1px 高光边 */
+.qa-box::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 10px;
+  right: 10px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.8), transparent);
+  pointer-events: none;
+}
+/* 底部细光带 */
+.qa-box::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  left: 12px;
+  right: 12px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--role-accent), transparent);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* ===== 语音输入（识别文字提示条） ===== */
+#voice-partial {
+  position: absolute;
+  left: 50%;
+  top: 8%;
+  transform: translateX(-50%);
+  max-width: 340px;
+  padding: 6px 14px;
+  background: rgba(0,0,0,0.7);
+  color: var(--role-accent);
+  border: 1px solid var(--role-accent);
+  border-radius: 14px;
+  font-size: 13px;
+  text-align: center;
+  display: none;
+  z-index: 30;
+  white-space: pre-wrap;
+  word-break: break-word;
+  backdrop-filter: blur(6px);
+}
+#voice-partial.show { display: block; }
+
+@keyframes waveBar {
+  0%, 100% { transform: scaleY(1); opacity: 0.6; }
+  50%      { transform: scaleY(2.4); opacity: 1; }
+}
+
+/* 人物头顶录音徽章 */
+#rec-badge {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 12px;
+  background: var(--role-accent);
+  border-radius: 14px;
+  box-shadow: 0 0 16px var(--role-accent), 0 4px 12px rgba(0,0,0,0.4);
+  z-index: 30;
+  pointer-events: none;
+  animation: recBadgeIn 0.3s ease-out;
+}
+#rec-badge.show { display: flex; }
+
+#rec-badge span {
+  width: 3px;
+  height: 8px;
+  background: var(--role-bg);
+  border-radius: 1.5px;
+  animation: waveBar 0.7s ease-in-out infinite;
+}
+#rec-badge span:nth-child(1) { animation-delay: 0s; }
+#rec-badge span:nth-child(2) { animation-delay: 0.1s; }
+#rec-badge span:nth-child(3) { animation-delay: 0.2s; }
+#rec-badge span:nth-child(4) { animation-delay: 0.3s; }
+#rec-badge span:nth-child(5) { animation-delay: 0.4s; }
+
+@keyframes recBadgeIn {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  100% { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ===== 背景四层 ===== */
+
+#bg-layers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: -1;
+}
+
+/* 层 1：细网格 */
+.bg-grid {
+  position: absolute;
+  inset: -60px;
+  background-image:
+    repeating-linear-gradient(0deg, var(--role-accent) 0, var(--role-accent) 1px, transparent 1px, transparent 30px),
+    repeating-linear-gradient(90deg, var(--role-accent) 0, var(--role-accent) 1px, transparent 1px, transparent 30px);
+  opacity: 0.04;
+  animation: bgGridDrift 60s linear infinite;
+}
+@keyframes bgGridDrift {
+  0%   { transform: translate(0, 0); }
+  100% { transform: translate(30px, 30px); }
+}
+
+/* 层 3：光晕（写在前面便于引用） */
+.bg-glow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, var(--role-accent) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 50% at 50% 100%, var(--role-accent) 0%, transparent 65%);
+  opacity: 0.06;
+  animation: bgGlowBreathe 8s ease-in-out infinite;
+}
+@keyframes bgGlowBreathe {
+  0%, 100% { opacity: 0.05; }
+  50%      { opacity: 0.10; }
+}
+
+/* 层 4：边缘刻度 */
+.bg-corners {
+  position: absolute;
+  inset: 8px;
+  pointer-events: none;
+}
+.bg-corners::before,
+.bg-corners::after {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--role-accent);
+  opacity: 0.3;
+}
+.bg-corners::before {
+  top: 0; left: 0;
+  border-right: none;
+  border-bottom: none;
+}
+.bg-corners::after {
+  bottom: 0; right: 0;
+  border-left: none;
+  border-top: none;
+}
+
+/* 层 2：氛围动态 —— 三角色不同 */
+.bg-motion {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* 舰长：竖直下落的小光点（数据流） */
+body[data-role="captain"] .bg-motion {
+  background-image:
+    radial-gradient(circle 1.5px at 20% 0%, var(--role-accent) 100%, transparent 100%),
+    radial-gradient(circle 1.5px at 40% 0%, var(--role-accent) 100%, transparent 100%),
+    radial-gradient(circle 1px   at 60% 0%, var(--role-accent) 100%, transparent 100%),
+    radial-gradient(circle 1.5px at 80% 0%, var(--role-accent) 100%, transparent 100%),
+    radial-gradient(circle 1px   at 10% 0%, var(--role-accent) 100%, transparent 100%),
+    radial-gradient(circle 1.5px at 90% 0%, var(--role-accent) 100%, transparent 100%);
+  background-size: 100% 220px;
+  opacity: 0.5;
+  animation: bgCodeRain 12s linear infinite;
+}
+@keyframes bgCodeRain {
+  0%   { background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 0 0; }
+  100% { background-position: 0 220px, 0 220px, 0 220px, 0 220px, 0 220px, 0 220px; }
+}
+
+/* 女仆：缓慢飘落的暖色光斑 */
+body[data-role="maid"] .bg-motion {
+  background-image:
+    radial-gradient(circle 3px at 15% 0%, #ffddaa 100%, transparent 100%),
+    radial-gradient(circle 2px at 35% 0%, #ffb8c8 100%, transparent 100%),
+    radial-gradient(circle 3px at 55% 0%, #fff0c0 100%, transparent 100%),
+    radial-gradient(circle 2px at 75% 0%, #ffc0a0 100%, transparent 100%),
+    radial-gradient(circle 2.5px at 90% 0%, #ffddaa 100%, transparent 100%);
+  background-size: 100% 260px;
+  opacity: 0.55;
+  animation: bgPetalFall 18s linear infinite;
+}
+@keyframes bgPetalFall {
+  0%   { background-position: 0 0; }
+  100% { background-position: 0 260px; }
+}
+
+/* 守卫：从中心向外扩散的雷达扫描环 */
+body[data-role="guard"] .bg-motion {
+  background-image:
+    radial-gradient(circle at 50% 50%, transparent 40%, var(--role-accent) 40.5%, transparent 41%),
+    radial-gradient(circle at 50% 50%, transparent 55%, var(--role-accent) 55.3%, transparent 56%),
+    radial-gradient(circle at 50% 50%, transparent 70%, var(--role-accent) 70.2%, transparent 71%);
+  opacity: 0.25;
+  animation: bgRadar 6s ease-out infinite;
+}
+@keyframes bgRadar {
+  0%   { transform: scale(0.4); opacity: 0.5; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* 平滑切换 —— 切角色时背景不要突兀 */
+.bg-grid, .bg-glow, .bg-motion {
+  transition: opacity 0.6s ease;
+}

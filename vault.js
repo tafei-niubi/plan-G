@@ -273,3 +273,5 @@ if (copyPathBtn && extPathInput) {
     setTimeout(() => copyPathBtn.textContent = '复制路径', 1500);
   });
 }
+
+window.ScrollWidget && window.ScrollWidget.attach(document.getElementById('list'));

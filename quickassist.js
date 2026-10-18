@@ -200,3 +200,4 @@ let alwaysOnTop = false;
     pinBtn.classList.toggle('active', alwaysOnTop);
   });
 })();
+window.ScrollWidget && window.ScrollWidget.attach(document.getElementById('result'));

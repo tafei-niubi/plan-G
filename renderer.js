@@ -167,12 +167,14 @@ function bubble(text, ms = 2600) {
 }
 
 function requestMaidReminder(text, stayMs, onShown) {
+  const now = Date.now();
+  if (window.__lastRoleRemind && now - window.__lastRoleRemind < 5000) return;
+  window.__lastRoleRemind = now;
   if (!maidRemindersEnabled) return;
   const wait = busyUntil - Date.now();
   const delay = wait > 0 ? (wait + 3000) : 0;
   const run = () => {
     if (!maidRemindersEnabled) return;
-    api.tempSwitchRole && api.tempSwitchRole('maid', 15000);
     bubble(text, stayMs || 5000);
     if (typeof onShown === 'function') onShown();
   };
@@ -217,167 +219,141 @@ const VOICE_FX = {
 };
 
 let currentAudioNodes = null;
-let diarySpeaking = false;
-let diaryAudioNode = null;
+const audioQueue = [];
+let audioPlaying = false;
 
-async function speakAndPlay(text) {
-  if (diarySpeaking) return;   // 日记朗读期间，气泡语音全部跳过
-  if (!ttsEnabled) return;
-  const t = String(text || '').trim();
+function enqueueAudio(text, role) {
+  if (!text) return;
+  const t = String(text).trim();
   if (!t || t.length > 200) return;
-  try {
-    // 停掉上一段
-    if (currentAudioNodes) {
-      try { currentAudioNodes.stop(); } catch (e) {}
-      currentAudioNodes = null;
-    }
-    let res = await window.petAPI.playByText(t);
-    if (!res || !res.ok) {
-      // 预录没有 → 走实时合成
-      const role = document.body.dataset.role || 'captain';
-      try {
-        res = await window.petAPI.synthRealtime(t, role);
-      } catch (e) {
-        res = { ok: false };
-      }
-    }
-    if (!res || !res.ok) return;
-
-    const ctx = getAudioCtx();
-    if (ctx.state === 'suspended') await ctx.resume();
-
-    const base64 = res.dataUrl.split(',')[1];
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const audioBuf = await ctx.decodeAudioData(bytes.buffer);
-
-    const role = document.body.dataset.role || 'captain';
-    const fx = VOICE_FX[role] || VOICE_FX.captain;
-
-    const src = ctx.createBufferSource();
-    src.buffer = audioBuf;
-
-    const highpass = ctx.createBiquadFilter();
-    highpass.type = 'highpass';
-    highpass.frequency.value = fx.lowCut;
-
-    const lowpass = ctx.createBiquadFilter();
-    lowpass.type = 'lowpass';
-    lowpass.frequency.value = fx.highCut;
-
-    const shaper = ctx.createWaveShaper();
-    shaper.curve = makeDistortionCurve(fx.drive * 100);
-    shaper.oversample = '2x';
-
-    const gainNode = ctx.createGain();
-    gainNode.gain.value = fx.gain;
-
-    src.connect(highpass);
-    highpass.connect(lowpass);
-    lowpass.connect(shaper);
-    shaper.connect(gainNode);
-    gainNode.connect(ctx.destination);
-
-    if (fx.reverb > 0) {
-      const convolver = ctx.createConvolver();
-      convolver.buffer = makeReverbImpulse(ctx, fx.reverb);
-      const wet = ctx.createGain();
-      wet.gain.value = 0.25;
-      gainNode.connect(convolver);
-      convolver.connect(wet);
-      wet.connect(ctx.destination);
-    }
-
-    src.start(0);
-    currentAudioNodes = src;
-    src.onended = () => { if (currentAudioNodes === src) currentAudioNodes = null; };
-  } catch (e) {
-    console.error('[TTS]', e);
-  }
+  // 队列太长丢弃最旧的
+  if (audioQueue.length > 5) audioQueue.shift();
+  audioQueue.push({ text: t, role: role || 'captain' });
+  if (!audioPlaying) processAudioQueue();
 }
 
-async function speakAndPlayWithRole(text, role) {
+async function processAudioQueue() {
+  if (audioPlaying) return;
+  audioPlaying = true;
+  while (audioQueue.length) {
+    const item = audioQueue.shift();
+    try {
+      await playAudioOnce(item.text, item.role);
+    } catch (e) {
+      console.error('[AudioQueue]', e);
+    }
+  }
+  audioPlaying = false;
+}
+
+function playAudioOnce(text, role) {
+  return new Promise(async (resolve) => {
+    try {
+      if (currentAudioNodes) {
+        try { currentAudioNodes.stop(); } catch (e) {}
+        currentAudioNodes = null;
+      }
+      // 优先预录
+      let res = await window.petAPI.playByText(text);
+      if (!res || !res.ok) {
+        res = await window.petAPI.synthRealtime(text, role);
+      }
+      if (!res || !res.ok) {
+        return resolve();
+      }
+
+      const ctx = getAudioCtx();
+      if (ctx.state === 'suspended') await ctx.resume();
+
+      const base64 = res.dataUrl.split(',')[1];
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const audioBuf = await ctx.decodeAudioData(bytes.buffer);
+
+      const fx = VOICE_FX[role] || VOICE_FX.captain;
+
+      const src = ctx.createBufferSource();
+      src.buffer = audioBuf;
+
+      const highpass = ctx.createBiquadFilter();
+      highpass.type = 'highpass';
+      highpass.frequency.value = fx.lowCut;
+
+      const lowpass = ctx.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.value = fx.highCut;
+
+      const shaper = ctx.createWaveShaper();
+      shaper.curve = makeDistortionCurve(fx.drive * 100);
+      shaper.oversample = '2x';
+
+      const gainNode = ctx.createGain();
+      gainNode.gain.value = fx.gain;
+
+      src.connect(highpass);
+      highpass.connect(lowpass);
+      lowpass.connect(shaper);
+      shaper.connect(gainNode);
+      gainNode.connect(ctx.destination);
+
+      if (fx.reverb > 0) {
+        const convolver = ctx.createConvolver();
+        convolver.buffer = makeReverbImpulse(ctx, fx.reverb);
+        const wet = ctx.createGain();
+        wet.gain.value = 0.25;
+        gainNode.connect(convolver);
+        convolver.connect(wet);
+        wet.connect(ctx.destination);
+      }
+
+      src.start(0);
+      currentAudioNodes = src;
+
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        if (currentAudioNodes === src) currentAudioNodes = null;
+        resolve();
+      };
+      src.onended = finish;
+      // 兜底：30 秒必结束
+      setTimeout(finish, 30000);
+    } catch (e) {
+      console.error('[AudioOnce]', e);
+      resolve();
+    }
+  });
+}
+
+function speakAndPlay(text) {
   if (!ttsEnabled) return;
   const t = String(text || '').trim();
   if (!t || t.length > 200) return;
 
-  // 抢占：日记朗读之前若有别的日记在读，先停掉
-  if (diaryAudioNode) {
-    try { diaryAudioNode.stop(); } catch (e) {}
-    diaryAudioNode = null;
+  // ===== 过滤不想念出来的系统提示 =====
+  const skipTTSKeywords = [
+    '缩放 ',
+    '正在查余额',
+    '余额（',
+    '恢复啦~',
+    '穿透模式',
+    '先选中文字',
+    'Kimi:',
+    'DeepSeek:',
+    '余额'
+  ];
+  if (skipTTSKeywords.some(kw => t.includes(kw))) {
+    return; // 直接返回，不发声
   }
-  if (currentAudioNodes) {
-    try { currentAudioNodes.stop(); } catch (e) {}
-    currentAudioNodes = null;
-  }
 
-  // 标记进入日记朗读模式（期间所有 bubble 语音静音）
-  diarySpeaking = true;
+  enqueueAudio(text, document.body.dataset.role || 'captain');
+}
 
-  try {
-    const res = await window.petAPI.synthRealtime(t, role);
-    if (!res || !res.ok) {
-      diarySpeaking = false;
-      return;
-    }
-
-    const ctx = getAudioCtx();
-    if (ctx.state === 'suspended') await ctx.resume();
-
-    const base64 = res.dataUrl.split(',')[1];
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const audioBuf = await ctx.decodeAudioData(bytes.buffer);
-
-    const fx = VOICE_FX[role] || VOICE_FX.captain;
-
-    const src = ctx.createBufferSource();
-    src.buffer = audioBuf;
-
-    const highpass = ctx.createBiquadFilter();
-    highpass.type = 'highpass';
-    highpass.frequency.value = fx.lowCut;
-
-    const lowpass = ctx.createBiquadFilter();
-    lowpass.type = 'lowpass';
-    lowpass.frequency.value = fx.highCut;
-
-    const shaper = ctx.createWaveShaper();
-    shaper.curve = makeDistortionCurve(fx.drive * 100);
-    shaper.oversample = '2x';
-
-    const gainNode = ctx.createGain();
-    gainNode.gain.value = fx.gain;
-
-    src.connect(highpass);
-    highpass.connect(lowpass);
-    lowpass.connect(shaper);
-    shaper.connect(gainNode);
-    gainNode.connect(ctx.destination);
-
-    if (fx.reverb > 0) {
-      const convolver = ctx.createConvolver();
-      convolver.buffer = makeReverbImpulse(ctx, fx.reverb);
-      const wet = ctx.createGain();
-      wet.gain.value = 0.25;
-      gainNode.connect(convolver);
-      convolver.connect(wet);
-      wet.connect(ctx.destination);
-    }
-
-    src.start(0);
-    diaryAudioNode = src;
-
-    src.onended = () => {
-      if (diaryAudioNode === src) diaryAudioNode = null;
-      diarySpeaking = false;
-    };
-  } catch (e) {
-    console.error('[TTS-日记]', e);
-    diarySpeaking = false;
-  }
+function speakAndPlayWithRole(text, role) {
+  if (!ttsEnabled) return;
+  enqueueAudio(text, role || 'captain');
 }
 
 function spawnFx(inner, cls, x, y) {
@@ -680,7 +656,7 @@ window.addEventListener('wheel', (e) => {
   if (now - lastWheel < 90) return;
   lastWheel = now;
   const dir = e.deltaY < 0 ? 1 : -1;
-  api.resize(dir).then((k) => bubble('缩放 ' + Math.round(k * 100) + '%', 1100));
+  api.resize(dir).then((k) => { if (window.petAPI && window.petAPI.showSubtitle) window.petAPI.showSubtitle('缩放 ' + Math.round(k * 100) + '%'); });
 }, { passive: false });
 
 // ---- 快捷操作盘（全息悬浮） ----
@@ -827,6 +803,7 @@ function openQuickPanel() {
   layoutQuickPanel();
   panel.classList.remove('hidden');
   panel.classList.remove('closing');
+  document.body.classList.add('quick-panel-open');
   playSound('open');
   requestAnimationFrame(() => requestAnimationFrame(() => {
     panel.querySelectorAll('.qa-box').forEach((b) => b.classList.add('open'));
@@ -844,6 +821,7 @@ function closeQuickPanel() {
   panel.classList.remove('active');
   playSound('close');
   panel.classList.add('closing');
+  document.body.classList.remove('quick-panel-open');
   panel.querySelectorAll('.qa-box').forEach((b) => b.classList.remove('open'));
   clearTimeout(quickCloseTimer);
   quickCloseTimer = setTimeout(() => {
@@ -903,12 +881,31 @@ function onTap(cx, cy) {
 async function doBalance() {
   bubble('正在查余额…', 2000);
   const res = await api.getBalance();
-  if (res && res.ok) {
-    const t = res.total.toFixed(2);
-    const tier = res.tier === 'peak' ? '峰' : '谷';
-    bubble('余额（' + tier + '）¥' + t, 6000);
+  if (!res) {
+    bubble('查余额失败：无响应', 4000);
+    return;
+  }
+
+  const lines = [];
+
+  // Kimi
+  if (res.kimi && res.kimi.ok) {
+    lines.push('Kimi: ¥' + res.kimi.available.toFixed(2));
+  } else if (res.kimi && res.kimi.message) {
+    lines.push('Kimi: ' + res.kimi.message);
+  }
+
+  // DeepSeek
+  if (res.deepseek && res.deepseek.ok) {
+    lines.push('DeepSeek: ¥' + res.deepseek.total.toFixed(2));
+  } else if (res.deepseek && res.deepseek.message) {
+    lines.push('DeepSeek: ' + res.deepseek.message);
+  }
+
+  if (lines.length === 0) {
+    bubble('未配置任何 API Key', 4000);
   } else {
-    bubble((res && res.message) || '查余额失败~', 4000);
+    bubble(lines.join(' · '), 6000);
   }
 }
 async function doWhisper(silent) {
@@ -928,6 +925,14 @@ api.onAction((name, value) => {
     case 'role-key': {
         const r = String(value || 'captain');
         document.body.dataset.role = r;
+
+        // ===== 新增：切角色时清空所有待播放音频，防止串音 =====
+        audioQueue.length = 0;
+        if (currentAudioNodes) {
+          try { currentAudioNodes.stop(); } catch (e) {}
+          currentAudioNodes = null;
+        }
+
         updateQuickPanelForRole();
         const HUD_COLORS = {
           captain: { primary: '#00e5ff', secondary: '#ff2d95', glow: '0, 229, 255' },
@@ -1253,6 +1258,15 @@ function shouldPassthrough(x, y) {
   const r = pet.getBoundingClientRect();
   if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return false;
 
+  // 如果鼠标在音乐控制条上，绝对不穿透
+  const musicPlayer = document.getElementById('music-player');
+  if (musicPlayer && !musicPlayer.classList.contains('hidden')) {
+    const mr = musicPlayer.getBoundingClientRect();
+    if (x >= mr.left && x <= mr.right && y >= mr.top && y <= mr.bottom) {
+      return false;
+    }
+  }
+
   if (quickPanelOpen) {
     const boxes = document.querySelectorAll('#quick-panel .qa-box');
     for (const b of boxes) {
@@ -1280,3 +1294,285 @@ document.addEventListener('mousemove', (e) => {
 
 // 打开/关闭快捷盘时立刻更新（因为盒子出现/消失会改变可点区域）
 // ——在 openQuickPanel / closeQuickPanel 里调用
+
+// ===== HUD 实时数据 =====
+
+// 系统状态：从 system:status-changed 里更新
+const ROLE_SLOGAN = {
+  captain: 'PLAN G · DATA ARK · COMMAND DECK',
+  maid:    'PLAN G · DATA ARK · WELCOME HOME',
+  guard:   'PLAN G · DATA ARK · SECURITY ONLINE',
+};
+
+function applyHudData(status) {
+  if (!status) return;
+  const cpuEl = document.getElementById('hd-cpu');
+  const memEl = document.getElementById('hd-mem');
+  const slEl  = document.getElementById('hd-slogan');
+  if (cpuEl && typeof status.cpuPercent === 'number') {
+    cpuEl.textContent = status.cpuPercent + '%';
+  }
+  if (memEl && typeof status.memUsedGB === 'number' && typeof status.memTotalGB === 'number') {
+    const pct = Math.round((status.memUsedGB / status.memTotalGB) * 100);
+    memEl.textContent = pct + '%';
+  }
+  if (slEl) {
+    const role = document.body.dataset.role || 'captain';
+    slEl.textContent = ROLE_SLOGAN[role] || ROLE_SLOGAN.captain;
+  }
+}
+
+// 首次从主进程拉一次状态
+if (window.petAPI && window.petAPI.getSystemStatus) {
+  window.petAPI.getSystemStatus().then(s => {
+    if (s) applyHudData(s);
+  }).catch(() => {});
+  // 30 秒刷新一次（兜底，主要靠 system:status-changed 推送）
+  setInterval(() => {
+    window.petAPI.getSystemStatus().then(s => {
+      if (s) applyHudData(s);
+    }).catch(() => {});
+  }, 30000);
+}
+
+// 监听主进程推送的状态变化
+// 注意：文件上方已有一个 onSystemStatusChanged 监听（applySystemAlert + 低电量/断网说话），
+// 这里只负责更新 HUD 数据，不重复 bubble，避免双重播报。
+if (window.petAPI && window.petAPI.onSystemStatusChanged) {
+  window.petAPI.onSystemStatusChanged((status) => {
+    applyHudData(status);
+  });
+}
+
+// 角色切换时更新口号
+api.onAction((name, value) => {
+  if (name === 'role-key') {
+    setTimeout(() => {
+      const slEl = document.getElementById('hd-slogan');
+      if (slEl) {
+        const role = String(value || 'captain');
+        slEl.textContent = ROLE_SLOGAN[role] || ROLE_SLOGAN.captain;
+      }
+    }, 100);
+  }
+});
+
+// ===== 人物 3D 微动效 =====
+let targetRotateX = 0;
+let targetRotateY = 0;
+let currentRotateX = 0;
+let currentRotateY = 0;
+
+window.addEventListener('mousemove', (e) => {
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
+  const dx = (e.clientX - cx) / cx;
+  const dy = (e.clientY - cy) / cy;
+  targetRotateY = dx * 2;
+  targetRotateX = -dy * 2;
+});
+
+function updatePetRotation() {
+  const pet = document.getElementById('pet-image');
+  if (pet) {
+    currentRotateX += (targetRotateX - currentRotateX) * 0.1;
+    currentRotateY += (targetRotateY - currentRotateY) * 0.1;
+    // 只用 rotateX/rotateY 做伪 3D 倾斜；位移/缩放走 CSS 独立属性 translate/scale，不冲突
+    pet.style.transform = `rotateX(${currentRotateX}deg) rotateY(${currentRotateY}deg)`;
+  }
+  requestAnimationFrame(updatePetRotation);
+}
+updatePetRotation();
+
+// ===== 拖拽 MP3 入库 =====
+const dropOverlay = document.getElementById('drop-overlay');
+let dragCounter = 0;
+
+window.addEventListener('dragenter', (e) => {
+  e.preventDefault();
+  dragCounter++;
+  if (dropOverlay) dropOverlay.classList.add('active');
+});
+
+window.addEventListener('dragleave', (e) => {
+  e.preventDefault();
+  dragCounter--;
+  if (dragCounter <= 0) {
+    dragCounter = 0;
+    if (dropOverlay) dropOverlay.classList.remove('active');
+  }
+});
+
+window.addEventListener('dragover', (e) => {
+  e.preventDefault();
+});
+
+window.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  dragCounter = 0;
+  if (dropOverlay) dropOverlay.classList.remove('active');
+
+  const files = e.dataTransfer.files;
+  if (!files || files.length === 0) return;
+
+  let mp3Paths = [];
+  for (let i = 0; i < files.length; i++) {
+    if (files[i].name.toLowerCase().endsWith('.mp3')) {
+      const p = window.petAPI.getFilePath(files[i]);
+      if (p) mp3Paths.push(p);
+    }
+  }
+
+  if (mp3Paths.length === 0) {
+    bubble('只认识 .mp3 哦，其他格式还在学习中', 3000);
+    return;
+  }
+
+  if (window.petAPI && window.petAPI.importMusic) {
+    const res = await window.petAPI.importMusic(mp3Paths);
+    if (res && res.ok) {
+      bubble('收下啦！' + res.count + ' 首歌已放进音乐舱', 4000);
+    } else {
+      bubble('导入失败了：' + (res ? res.message : '未知错误'), 3000);
+    }
+  }
+});
+
+// ===== 本地音乐播放器 =====
+let currentMusicAudio = null;
+let isMusicPlaying = false;
+
+async function playLocalMusic(keyword) {
+  if (window.petAPI && window.petAPI.playMusicRandom) {
+    const res = await window.petAPI.playMusicRandom(keyword);
+
+    if (!res || !res.ok) {
+      bubble(res.message || '没找到这首歌', 3000);
+      return;
+    }
+
+    if (currentMusicAudio) {
+      currentMusicAudio.pause();
+      currentMusicAudio = null;
+    }
+
+    console.log('[Music] 准备播放:', res.fileUrl);
+
+    // 用绝对路径播放
+    currentMusicAudio = new Audio(res.fileUrl);
+    currentMusicAudio.volume = 0.6;
+
+    currentMusicAudio.play().then(() => {
+      isMusicPlaying = true;
+      updateMusicUI(res.cleanName || res.filename);
+      bubble('正在播放：' + (res.cleanName || res.filename), 4000);
+    }).catch(e => {
+      console.error('[Music] 播放被拦截或文件损坏:', e);
+      bubble('播放失败，请按 F12 查看控制台', 4000);
+    });
+
+    // 播放结束时自动切下一首
+    currentMusicAudio.onended = () => {
+      playLocalMusic('热门推荐');
+    };
+  }
+}
+
+// 监听主进程发来的播放请求
+if (window.petAPI && window.petAPI.onMusicPlayRequest) {
+  window.petAPI.onMusicPlayRequest((keyword) => {
+    playLocalMusic(keyword);
+  });
+}
+
+// 监听主进程发来的曲库清单请求
+if (window.petAPI && window.petAPI.onMusicListRequest) {
+  window.petAPI.onMusicListRequest(async () => {
+    const res = await window.petAPI.getMusicList();
+    if (res && res.ok) {
+      if (res.files.length === 0) {
+        bubble('音乐舱还是空的哦，快拖几首 MP3 进来吧', 4000);
+      } else {
+        // 使用清洗后的 display 名字
+        const names = res.files.map(f => f.display).slice(0, 10);
+        const listStr = names.join('、') + (res.files.length > 10 ? '...' : '');
+        bubble('音乐舱里有 ' + res.files.length + ' 首歌：\n' + listStr, 8000);
+      }
+    }
+  });
+}
+
+// 展示曲库清单（聊天窗直查路径用）
+function showMusicList(files) {
+  const list = Array.isArray(files) ? files : [];
+  if (list.length === 0) {
+    bubble('音乐舱还是空的哦，快拖几首 MP3 进来吧', 4000);
+  } else {
+    // 使用清洗后的 display 名字（兼容旧格式纯字符串）
+    const names = list.map(f => (typeof f === 'string' ? f : f.display)).slice(0, 10);
+    const listStr = names.join('、') + (list.length > 10 ? '...' : '');
+    bubble('音乐舱里有 ' + list.length + ' 首歌：\n' + listStr, 8000);
+  }
+}
+
+// 监听聊天窗直接查曲库的通知（已携带文件清单）
+if (window.petAPI && window.petAPI.onMusicListShow) {
+  window.petAPI.onMusicListShow((files) => showMusicList(files));
+}
+
+// ===== 音乐 UI 逻辑 =====
+const musicPlayer = document.getElementById('music-player');
+const musicTitle = document.getElementById('music-title');
+const musicPlayBtn = document.getElementById('music-play');
+
+function updateMusicUI(filename) {
+  if (!musicPlayer || !musicTitle) return;
+  // 直接使用后端传过来的干净名字，或者做简单的保底处理
+  const displayName = filename.length > 25 ? '未知本地曲目' : filename.replace('.mp3', '').replace(/_/g, ' ');
+  musicTitle.textContent = displayName;
+  musicPlayer.classList.remove('hidden');
+  if (musicPlayBtn) musicPlayBtn.textContent = '⏸';
+}
+
+if (musicPlayBtn) {
+  musicPlayBtn.onclick = () => {
+    if (!currentMusicAudio) return;
+    if (isMusicPlaying) {
+      currentMusicAudio.pause();
+      isMusicPlaying = false;
+      musicPlayBtn.textContent = '▶';
+    } else {
+      currentMusicAudio.play();
+      isMusicPlaying = true;
+      musicPlayBtn.textContent = '⏸';
+    }
+  };
+}
+
+const musicNextBtn = document.getElementById('music-next');
+if (musicNextBtn) {
+  musicNextBtn.onclick = () => {
+    playLocalMusic('热门推荐');
+  };
+}
+
+const musicPrevBtn = document.getElementById('music-prev');
+if (musicPrevBtn) {
+  musicPrevBtn.onclick = () => {
+    // 目前没有歌单历史，直接随机放一首
+    playLocalMusic('热门推荐');
+  };
+}
+
+const musicCloseBtn = document.getElementById('music-close');
+if (musicCloseBtn) {
+  musicCloseBtn.onclick = () => {
+    if (currentMusicAudio) {
+      currentMusicAudio.pause();
+      currentMusicAudio.currentTime = 0;
+      currentMusicAudio = null;
+    }
+    isMusicPlaying = false;
+    musicPlayer.classList.add('hidden');
+  };
+}

@@ -115,3 +115,5 @@ document.querySelectorAll('#tabs .tab').forEach(tab => {
   loadDate(todayStr());
   loadWeather();
 })();
+
+window.ScrollWidget && window.ScrollWidget.attach(document.getElementById('body'));

@@ -487,3 +487,5 @@ function showPasteHint(msg) {
   clearTimeout(hint.__timer);
   hint.__timer = setTimeout(() => hint.classList.remove('show'), 2200);
 }
+
+window.ScrollWidget && window.ScrollWidget.attach(document.getElementById('nb-list'));

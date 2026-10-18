@@ -1,5 +1,5 @@
 // 安全的 IPC 桥接
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('petAPI', {
   getConfig: () => ipcRenderer.invoke('get-config'),
@@ -17,7 +17,6 @@ contextBridge.exposeInMainWorld('petAPI', {
   onPasswordDetected: (cb) => ipcRenderer.on('password-detected', (e, text) => cb(text)),
   onSensitiveDetected: (cb) => ipcRenderer.on('sensitive-detected', (e, data) => cb(data)),
   onSuspicious: (cb) => ipcRenderer.on('guard:suspicious', (e, data) => cb(data)),
-  tempSwitchRole: (key, duration) => ipcRenderer.send('role:temp-switch', key, duration),
   openWithPassword: (payload) => ipcRenderer.send('vault:open-with-password', payload),
   openExercise: () => ipcRenderer.send('exercise:open'),
   onMaidBubble: (cb) => ipcRenderer.on('maid-bubble', (e, msg) => cb(msg)),
@@ -45,6 +44,16 @@ contextBridge.exposeInMainWorld('petAPI', {
   onAsrError: (cb) => ipcRenderer.on('asr:error', (e, d) => cb(d)),
   onAsrEnd: (cb) => ipcRenderer.on('asr:end', (e) => cb()),
   voiceSend: (text) => ipcRenderer.send('voice:send', text),
+  getFilePath: (file) => {
+    try { return webUtils.getPathForFile(file); }
+    catch (e) { return file.path; }
+  },
+  importMusic: (paths) => ipcRenderer.invoke('music:import', paths),
+  playMusicRandom: (keyword) => ipcRenderer.invoke('music:play-random', keyword),
+  onMusicPlayRequest: (cb) => ipcRenderer.on('music:play-request', (e, keyword) => cb(keyword)),
+  getMusicList: () => ipcRenderer.invoke('music:list'),
+  onMusicListRequest: (cb) => ipcRenderer.on('music:list-request', (e) => cb()),
+  onMusicListShow: (cb) => ipcRenderer.on('music:list-show', (e, files) => cb(files)),
 });
 
 contextBridge.exposeInMainWorld('translateAPI', {
@@ -69,7 +78,7 @@ contextBridge.exposeInMainWorld('qaAPI', {
 });
 
 contextBridge.exposeInMainWorld('chatAPI', {
-  send: (text) => ipcRenderer.invoke('chat:send', text),
+  send: (text, role) => ipcRenderer.invoke('chat:send', { text, role }),
   load: () => ipcRenderer.invoke('chat:load'),
   clear: () => ipcRenderer.invoke('chat:clear'),
   close: () => ipcRenderer.send('chat:close'),
@@ -78,6 +87,8 @@ contextBridge.exposeInMainWorld('chatAPI', {
   onError: (cb) => ipcRenderer.on('chat:error', (e, d) => cb(d)),
   onRoleInfo: (cb) => ipcRenderer.on('role-info', (e, d) => cb(d)),
   onVoiceInject: (cb) => ipcRenderer.on('voice:inject', (e, text) => cb(text)),
+  getMusicList: () => ipcRenderer.invoke('music:list'),
+  notifyMusicList: (files) => ipcRenderer.send('music:notify-list', files),
 });
 
 contextBridge.exposeInMainWorld('vaultAPI', {

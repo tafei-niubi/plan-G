@@ -1,0 +1,83 @@
+.scroll-widget {
+  position: fixed;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 4px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--role-accent, rgba(255, 255, 255, 0.2));
+  border-radius: 10px;
+  opacity: 0.4;
+  transition: opacity 0.25s ease, box-shadow 0.25s ease;
+  z-index: 50;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+
+.scroll-widget:hover {
+  opacity: 1;
+  box-shadow: 0 0 12px var(--role-accent, rgba(255, 255, 255, 0.3));
+}
+
+.scroll-widget button {
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: var(--role-accent, #aaa);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.scroll-widget button:hover {
+  background: var(--role-accent-soft, rgba(255, 255, 255, 0.1));
+}
+
+.scroll-widget button:active {
+  transform: scale(0.9);
+}
+
+.scroll-widget .sw-track {
+  position: relative;
+  width: 3px;
+  height: 60px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+}
+
+.scroll-widget .sw-thumb {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  min-height: 20px;
+  background: var(--role-accent, #aaa);
+  border-radius: 2px;
+  transition: height 0.2s, top 0.2s;
+}
+
+/* 隐藏原生滚动条（可选）—— 先不隐藏，避免影响拖拽 */
+
+.scroll-widget .sw-thumb {
+  cursor: grab;
+}
+
+.scroll-widget .sw-thumb:active {
+  cursor: grabbing;
+}
+
+.scroll-widget .sw-track {
+  cursor: pointer;
+}
+
+.scroll-widget .sw-thumb {
+  transition: none;   /* 拖动时不要过渡动画，否则卡顿 */
+}

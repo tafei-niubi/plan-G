@@ -115,3 +115,5 @@ $('#refresh-btn').addEventListener('click', refreshConnections);
   refreshConnections();
   refreshSysInfo();
 })();
+
+window.ScrollWidget && window.ScrollWidget.attach(document.getElementById('conn-list'));
