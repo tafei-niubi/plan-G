@@ -15,6 +15,7 @@ const entryUser = document.querySelector('#entry-user');
 const entryNick = document.querySelector('#entry-nick');
 const entryPass = document.querySelector('#entry-pass');
 const entryNote = document.querySelector('#entry-note');
+const entryTotp = document.querySelector('#entry-totp');
 const entryCancel = document.querySelector('#entry-cancel');
 const entrySave = document.querySelector('#entry-save');
 const entryError = document.querySelector('#entry-error');
@@ -50,6 +51,14 @@ function renderList() {
     left.appendChild(site);
     left.appendChild(user);
 
+    if (entry.totpSecret) {
+      const totpDiv = document.createElement('div');
+      totpDiv.className = 'vault-totp';
+      totpDiv.dataset.secret = entry.totpSecret;
+      totpDiv.innerHTML = '<span class="totp-code">------</span> <span class="totp-timer">30s</span>';
+      left.appendChild(totpDiv);
+    }
+
     const mid = document.createElement('div');
     mid.className = 'vault-mid';
     mid.textContent = '••••••••';
@@ -67,6 +76,7 @@ function renderList() {
       entryNick.value = entry.nick || '';
       entryPass.value = entry.pass || '';
       entryNote.value = entry.note || '';
+      entryTotp.value = entry.totpSecret || '';
       entrySave.textContent = '更新';
       entryError.textContent = '';
       entryModal.style.display = 'flex';
@@ -162,7 +172,7 @@ passwordInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { e.preventDefault(); passwordSubmit.click(); }
 });
 
-[entrySite, entryUser, entryNick, entryPass, entryNote].forEach((el) => {
+[entrySite, entryUser, entryNick, entryPass, entryNote, entryTotp].forEach((el) => {
   el.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); entrySave.click(); }
   });
@@ -177,6 +187,7 @@ addBtn.addEventListener('click', () => {
   entryNick.value = '';
   entryPass.value = '';
   entryNote.value = '';
+  entryTotp.value = '';
   entryError.textContent = '';
   entryModal.style.display = 'flex';
 });
@@ -185,19 +196,25 @@ entryCancel.addEventListener('click', () => {
   entryModal.style.display = 'none';
 });
 
+document.getElementById('generate-totp-btn').addEventListener('click', async () => {
+  const secret = await window.vaultAPI.generateTotpSecret();
+  if (secret && entryTotp) entryTotp.value = secret;
+});
+
 entrySave.addEventListener('click', async () => {
   const site = (document.getElementById('entry-site').value || '').trim();
   const user = (document.getElementById('entry-user').value || '').trim();
   const nick = (document.getElementById('entry-nick').value || '').trim();
   const pass = document.getElementById('entry-pass').value || '';
   const note = (document.getElementById('entry-note').value || '').trim();
+  const totpSecret = (document.getElementById('entry-totp').value || '').trim();
   const errEl = document.getElementById('entry-error');
   if (!site || !pass) { if (errEl) errEl.textContent = '网站和密码不能为空'; return; }
   if (editingId) {
     const idx = currentEntries.findIndex(en => en.id === editingId);
-    if (idx >= 0) currentEntries[idx] = Object.assign({}, currentEntries[idx], { site, user, nick, pass, note });
+    if (idx >= 0) currentEntries[idx] = Object.assign({}, currentEntries[idx], { site, user, nick, pass, note, totpSecret });
   } else {
-    currentEntries.push({ id: Date.now() + Math.random(), site, user, nick, pass, note });
+    currentEntries.push({ id: Date.now() + Math.random(), site, user, nick, pass, note, totpSecret });
   }
   const res = await window.vaultAPI.save(currentEntries);
   if (res && res.ok) {
@@ -275,3 +292,21 @@ if (copyPathBtn && extPathInput) {
 }
 
 window.ScrollWidget && window.ScrollWidget.attach(document.getElementById('list'));
+
+// ===== TOTP 动态码倒计时（每 1 秒刷新一次）=====
+setInterval(async () => {
+  const now = new Date();
+  const remain = 30 - (now.getSeconds() % 30);
+  document.querySelectorAll('.vault-totp').forEach(async (el) => {
+    const secret = el.dataset.secret;
+    if (!secret) return;
+    const code = await window.vaultAPI.getTotp(secret);
+    const codeEl = el.querySelector('.totp-code');
+    const timerEl = el.querySelector('.totp-timer');
+    if (codeEl) {
+      codeEl.textContent = code.slice(0, 3) + ' ' + code.slice(3);
+      codeEl.style.color = remain <= 5 ? '#ff2d55' : '#ff9d00';
+    }
+    if (timerEl) timerEl.textContent = remain + 's';
+  });
+}, 1000);

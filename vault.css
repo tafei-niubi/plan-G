@@ -286,3 +286,21 @@ body { display: flex; flex-direction: column; }
   color: #f5e8ea;
   background: rgba(255, 45, 85, 0.08);
 }
+
+/* ---- 密码库 TOTP 动态码 ---- */
+.vault-totp {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.totp-code {
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #ff9d00;
+}
+.totp-timer {
+  color: #a8888d;
+  font-size: 11px;
+}

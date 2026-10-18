@@ -40,6 +40,10 @@
       <input type="text" id="entry-user" placeholder="用户名" />
       <input type="text" id="entry-nick" placeholder="昵称（可选）" />
       <input type="password" id="entry-pass" placeholder="密码" />
+      <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+        <input type="text" id="entry-totp" placeholder="两步验证密钥（可选）" style="flex: 1;" />
+        <button id="generate-totp-btn" type="button" style="background: rgba(255,45,85,0.1); border: 1px solid rgba(255,45,85,0.4); color: #ff2d55; padding: 0 12px; border-radius: 8px; cursor: pointer; white-space: nowrap;">◇ 生成</button>
+      </div>
       <input type="text" id="entry-note" placeholder="备注（可选）" />
       <div class="entry-actions">
         <button id="entry-cancel" class="btn-secondary">取消</button>

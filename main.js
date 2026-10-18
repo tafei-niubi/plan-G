@@ -1970,6 +1970,64 @@ function decryptVault(fileObj, key) {
   return JSON.parse(json);
 }
 
+// ===== 密码库 TOTP（两步验证动态码，RFC 6238）=====
+function base32Decode(base32) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0, value = 0, index = 0;
+  const output = [];
+  const clean = base32.toUpperCase().replace(/=+$/, '');
+  for (let i = 0; i < clean.length; i++) {
+    const idx = alphabet.indexOf(clean[i]);
+    if (idx === -1) continue;
+    value = (value << 5) | idx;
+    bits += 5;
+    if (bits >= 8) {
+      output[index++] = (value >>> (bits - 8)) & 255;
+      bits -= 8;
+    }
+  }
+  return Buffer.from(output);
+}
+
+function base32Encode(buffer) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0, value = 0, output = '';
+  for (let i = 0; i < buffer.length; i++) {
+    value = (value << 8) | buffer[i];
+    bits += 8;
+    while (bits >= 5) {
+      output += alphabet[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) {
+    output += alphabet[(value << (5 - bits)) & 31];
+  }
+  return output;
+}
+
+function generateTOTP(secret) {
+  try {
+    const key = base32Decode(secret);
+    const time = Math.floor(Date.now() / 1000 / 30);
+    const buffer = Buffer.alloc(8);
+    buffer.writeBigUInt64BE(BigInt(time));
+    const hmac = crypto.createHmac('sha1', key).update(buffer).digest();
+    const offset = hmac[hmac.length - 1] & 0x0f;
+    const code = (hmac.readUInt32BE(offset) & 0x7fffffff) % 1000000;
+    return code.toString().padStart(6, '0');
+  } catch (e) {
+    return '------';
+  }
+}
+
+function generateTotpSecret() {
+  return base32Encode(crypto.randomBytes(20));
+}
+
+ipcMain.handle('vault:generate-totp-secret', () => generateTotpSecret());
+ipcMain.handle('vault:get-totp', (e, secret) => generateTOTP(secret));
+
 ipcMain.handle('vault:unlock', (e, password) => {
   if (!password || password.length < 8) return { ok: false, message: '主密码至少 8 位' };
   const vf = VAULT_FILE();

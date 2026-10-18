@@ -98,6 +98,8 @@ contextBridge.exposeInMainWorld('vaultAPI', {
   save: (entries) => ipcRenderer.invoke('vault:save', entries),
   copy: (text) => ipcRenderer.invoke('vault:copy', text),
   getExtPath: () => ipcRenderer.invoke('vault:get-ext-path'),
+  generateTotpSecret: () => ipcRenderer.invoke('vault:generate-totp-secret'),
+  getTotp: (secret) => ipcRenderer.invoke('vault:get-totp', secret),
   onInit: (cb) => ipcRenderer.on('vault:init', (e, hasVault) => cb(hasVault)),
   openWithPassword: (pwd) => ipcRenderer.send('vault:open-with-password', pwd),
   onPrefillPassword: (cb) => ipcRenderer.on('vault:prefill-password', (e, pwd) => cb(pwd)),
