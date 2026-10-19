@@ -1,5 +1,8 @@
 // G计划 —— 渲染进程:视频动画 + 加权行为 + 交互 + 养成 + 余额/碎碎念
 const api = window.petAPI;
+if (navigator.userAgent.includes('Linux')) {
+  document.body.classList.add('is-linux');
+}
 const $ = (s) => document.querySelector(s);
 const stage = $('#stage');
 const petWrap = $('#pet-wrapper');
@@ -276,35 +279,42 @@ function playAudioOnce(text, role) {
       const src = ctx.createBufferSource();
       src.buffer = audioBuf;
 
-      const highpass = ctx.createBiquadFilter();
-      highpass.type = 'highpass';
-      highpass.frequency.value = fx.lowCut;
+      const isLinux = navigator.userAgent.includes('Linux');
 
-      const lowpass = ctx.createBiquadFilter();
-      lowpass.type = 'lowpass';
-      lowpass.frequency.value = fx.highCut;
+      // Linux 下直接连接播放，跳过滤镜链（highpass/lowpass/shaper/convolver 太吃 CPU）
+      if (isLinux) {
+        src.connect(ctx.destination);
+      } else {
+        const highpass = ctx.createBiquadFilter();
+        highpass.type = 'highpass';
+        highpass.frequency.value = fx.lowCut;
 
-      const shaper = ctx.createWaveShaper();
-      shaper.curve = makeDistortionCurve(fx.drive * 100);
-      shaper.oversample = '2x';
+        const lowpass = ctx.createBiquadFilter();
+        lowpass.type = 'lowpass';
+        lowpass.frequency.value = fx.highCut;
 
-      const gainNode = ctx.createGain();
-      gainNode.gain.value = fx.gain;
+        const shaper = ctx.createWaveShaper();
+        shaper.curve = makeDistortionCurve(fx.drive * 100);
+        shaper.oversample = '2x';
 
-      src.connect(highpass);
-      highpass.connect(lowpass);
-      lowpass.connect(shaper);
-      shaper.connect(gainNode);
-      gainNode.connect(ctx.destination);
+        const gainNode = ctx.createGain();
+        gainNode.gain.value = fx.gain;
 
-      if (fx.reverb > 0) {
-        const convolver = ctx.createConvolver();
-        convolver.buffer = makeReverbImpulse(ctx, fx.reverb);
-        const wet = ctx.createGain();
-        wet.gain.value = 0.25;
-        gainNode.connect(convolver);
-        convolver.connect(wet);
-        wet.connect(ctx.destination);
+        src.connect(highpass);
+        highpass.connect(lowpass);
+        lowpass.connect(shaper);
+        shaper.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        if (fx.reverb > 0) {
+          const convolver = ctx.createConvolver();
+          convolver.buffer = makeReverbImpulse(ctx, fx.reverb);
+          const wet = ctx.createGain();
+          wet.gain.value = 0.25;
+          gainNode.connect(convolver);
+          convolver.connect(wet);
+          wet.connect(ctx.destination);
+        }
       }
 
       src.start(0);
@@ -1278,6 +1288,13 @@ function shouldPassthrough(x, y) {
 }
 
 function updatePassthrough(x, y) {
+  if (navigator.userAgent.includes('Linux')) {
+    if (lastPassthrough !== false) {
+      lastPassthrough = false;
+      api.setMousePassthrough(false);
+    }
+    return;
+  }
   const pass = shouldPassthrough(x, y);
   if (pass !== lastPassthrough) {
     lastPassthrough = pass;

@@ -607,4 +607,7 @@ body[data-role="captain"].quick-panel-open .bg-motion { opacity: 0.5; }
 @keyframes marquee {
   0% { transform: translate(0, 0); }
   100% { transform: translate(-100%, 0); }
+}/* ===== Linux 专属鼠标捕获层 ===== */
+body.is-linux #stage {
+  background-color: rgba(0, 0, 0, 0.01) !important;
 }

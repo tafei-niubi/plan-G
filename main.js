@@ -56,6 +56,7 @@ if (!gotTheLock) {
     });
   });
   app.whenReady().then(async () => {
+  console.log('[启动] 当前用户数据目录:', app.getPath('userData'));
   await openSplash();
   createWindow();
   initMusicModule();
@@ -455,6 +456,8 @@ function getClaude() {
       baseURL: 'https://api.deepseek.com/anthropic'
     });
   }
+  // DeepSeek Key 为空 → 保底报错日志，提示用户去配置文件里填 Key
+  console.error('[config] deepseekApiKey 为空，请在配置文件里填写：' + configPath());
   // 如果没填 DeepSeek，再退回找 Kimi（或者备用 Claude Key）
   const kimiKey = cfg().kimiApiKey;
   if (kimiKey) {
@@ -739,13 +742,14 @@ function openSplash() {
 function createWindow() {
   const size = scaledSize();
   const wa = screen.getPrimaryDisplay().workArea;
+  const isLinux = process.platform === 'linux';
   win = new BrowserWindow({
     width: size.w,
     height: size.h,
     x: wa.x + wa.width - size.w - 60,
     y: wa.y + wa.height - size.h - 4,
-    transparent: true,
-    frame: false,
+    transparent: !isLinux, // Linux 下禁用透明
+    frame: isLinux,        // Linux 下加上系统边框，防止无法拖动
     thickFrame: false, // 关掉 Win11 无边框窗口的隐形外框,避免 150% DPI 下移动时宽高被反复取整累积变大
     resizable: false,
     hasShadow: false,
@@ -1392,6 +1396,8 @@ function toggleWeather() {
 
 function toggleClickThrough() {
   clickThrough = !clickThrough;
+  // 如果是在 Linux 下，直接返回，彻底禁用穿透
+if (process.platform === 'linux') return;
   if (win) win.setIgnoreMouseEvents(clickThrough, { forward: true });
   send('clickthrough', clickThrough);
   if (tray) tray.setContextMenu(buildMenu());
@@ -1456,7 +1462,9 @@ ipcMain.on('set-position', (e, x, y) => {
 ipcMain.on('show-context-menu', () => buildMenu().popup({ window: win }));
 ipcMain.on('set-tray-icon', (e, d) => { if (!tray) createTray(d); });
 ipcMain.handle('get-cursor', () => screen.getCursorScreenPoint());
-ipcMain.handle('set-click-through', (e, b) => { clickThrough = b; win.setIgnoreMouseEvents(b, { forward: true }); });
+ipcMain.handle('set-click-through', (e, b) => { clickThrough = b; 
+  // 如果是在 Linux 下，直接返回，彻底禁用穿透
+if (process.platform === 'linux') return;win.setIgnoreMouseEvents(b, { forward: true }); });
 ipcMain.handle('resize', (e, dir) => {
   const cur = cfg().scale || DEFAULT_SCALE;
   const step = dir >= 0 ? 0.05 : -0.05;
@@ -1529,7 +1537,12 @@ ipcMain.handle('get-balance', async () => {
 });
 ipcMain.on('set-mouse-passthrough', (e, pass) => {
   if (win && !win.isDestroyed()) {
-    win.setIgnoreMouseEvents(!!pass, { forward: true });
+    if (process.platform === 'linux') {
+      // Linux 下强制不穿透
+      win.setIgnoreMouseEvents(false, { forward: true });
+    } else {
+      win.setIgnoreMouseEvents(!!pass, { forward: true });
+    }
   }
 });
 ipcMain.handle('system:status', async () => await getSystemStatus());

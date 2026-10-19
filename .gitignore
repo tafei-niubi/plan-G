@@ -18,3 +18,7 @@ xfyun-credentials.json
 test-tts*.mp3
 test-tts*.js
 generate-voices.py
+sf_G-project/
+.vscode/
+*.bak
+__pycache__/
